@@ -1,0 +1,35 @@
+=== Dotfiles Installation Started at Sun Aug 17 09:48:33 AM AEST 2025 ===
+[0;34m[INFO][0m === Dotfiles Installation Script ===
+[0;34m[INFO][0m Installation directory: /home/fsun/devel/dotfiles
+[0;34m[INFO][0m Log file: /home/fsun/devel/dotfiles/install.log
+[0;34m[INFO][0m Checking prerequisites...
+[0;32m[SUCCESS][0m ZSH found: /usr/bin/zsh
+[0;32m[SUCCESS][0m Git found: /usr/bin/git
+[0;34m[INFO][0m Starting dotfiles installation from: /home/fsun/devel/dotfiles
+[0;34m[INFO][0m Installing ZSH configuration...
+[0;34m[INFO][0m Removing existing symlink: /home/fsun/.zshrc
+[0;34m[INFO][0m Creating symlink: /home/fsun/.zshrc -> /home/fsun/devel/dotfiles/zsh/.zshrc
+[0;32m[SUCCESS][0m Symlink created for ZSH config
+[0;32m[SUCCESS][0m Verified: ZSH config symlink is working
+[0;34m[INFO][0m Removing existing symlink: /home/fsun/.my_zshrc
+[0;34m[INFO][0m Creating symlink: /home/fsun/.my_zshrc -> /home/fsun/devel/dotfiles/zsh/.my_zshrc
+[0;32m[SUCCESS][0m Symlink created for ZSH modules
+[0;32m[SUCCESS][0m Verified: ZSH modules symlink is working
+[0;34m[INFO][0m Installing Neovim configuration...
+[0;34m[INFO][0m Removing existing symlink: /home/fsun/.config/nvim
+[0;34m[INFO][0m Creating symlink: /home/fsun/.config/nvim -> /home/fsun/devel/dotfiles/nvim
+[0;32m[SUCCESS][0m Symlink created for Neovim config
+[0;32m[SUCCESS][0m Verified: Neovim config symlink is working
+[0;34m[INFO][0m Credentials directory already exists
+[0;34m[INFO][0m Setting permissions...
+[0;32m[SUCCESS][0m Dotfiles installation completed successfully!
+[0;34m[INFO][0m Testing installation...
+[0;32m[SUCCESS][0m ZSH configuration syntax is valid
+[0;32m[SUCCESS][0m Alias configuration is valid
+[0;32m[SUCCESS][0m Installation verification passed
+[0;34m[INFO][0m === Installation Summary ===
+[0;34m[INFO][0m Backup directory: /home/fsun/.dotfiles_backup_20250817_094833 (if backups were created)
+[0;34m[INFO][0m Log file: /home/fsun/devel/dotfiles/install.log
+[0;34m[INFO][0m To apply ZSH changes, restart your shell or run: source ~/.zshrc
+=== Dotfiles Installation Completed at Sun Aug 17 09:48:33 AM AEST 2025 ===
+=== Dotfiles Installation Completed at Sun Aug 17 09:48:33 AM AEST 2025 ===

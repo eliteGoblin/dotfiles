@@ -1,0 +1,14 @@
+# General
+*.swp
+*.swo
+.DS_Store
+
+# Neovim (we only track config under .config/nvim)
+.local/
+.cache/
+tmp/
+Session.vim
+
+# Zsh history
+.zsh_history
+.zcompdump*
