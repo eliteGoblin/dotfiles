@@ -4,8 +4,8 @@
 
 ### Package Requirements
 - neovim 0.11+ # Modern vim with LSP and Lua support (REQUIRED: 0.11 or later)
-- ripgrep # Fast text search for telescope
-- fd-find # Fast file finder for telescope
+- ripgrep (rg) # Fast text search for telescope live_grep (REQUIRED)
+- fd-find (fd/fdfind) # Fast file finder for telescope (REQUIRED)
 
 ### Dotfiles Integration
 - Config file: `dotfiles/nvim/init.lua`
@@ -108,6 +108,8 @@
 ### SSH Icon Fix
 For SSH from macOS to Ubuntu, configure **macOS terminal** font to "JetBrainsMono Nerd Font Mono".
 Ubuntu font is irrelevant - local terminal renders SSH content.
+
+**Automated Fix**: Run `setup_ubuntu/scripts/fix_ssh_fonts.sh` to test and configure SSH font rendering automatically.
 
 ### Ubuntu Font Installation
 ```bash

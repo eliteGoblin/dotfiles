@@ -82,6 +82,7 @@ nvim .                 # Open current directory (auto-opens file tree)
 | Key | Action |
 |-----|--------|
 | `Space+ff` | Find files |
+| `Space+fa` | Find all files (including hidden like .zshrc) |
 | `Space+fg` | Live grep search |
 | `Space+fb` | Browse buffers |
 | `Space+fh` | Help tags |

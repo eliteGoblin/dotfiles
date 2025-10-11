@@ -69,15 +69,47 @@ require("lazy").setup({
   -- Telescope (fuzzy finder)
   {
     "nvim-telescope/telescope.nvim",
-    dependencies = { "nvim-lua/plenary.nvim" },
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      { "nvim-telescope/telescope-fzf-native.nvim", build = "make" },
+    },
     keys = {
       { "<leader>ff", "<cmd>Telescope find_files<cr>", desc = "Find files" },
+      { "<leader>fa", function() require("telescope.builtin").find_files({hidden=true}) end, desc = "Find all files (including hidden)" },
       { "<leader>fg", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
       { "<leader>fb", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
       { "<leader>fh", "<cmd>Telescope help_tags<cr>", desc = "Help tags" },
     },
     config = function()
-      require("telescope").setup({})
+      require("telescope").setup({
+        defaults = {
+          file_ignore_patterns = { "%.git/", "node_modules/" },
+          mappings = {
+            i = {
+              ["<esc>"] = require("telescope.actions").close,
+            },
+          },
+        },
+        pickers = {
+          find_files = {
+            hidden = false, -- Default: don't show hidden files
+            find_command = vim.fn.executable("fd") == 1 and { "fd", "--type", "f", "--strip-cwd-prefix" }
+              or vim.fn.executable("fdfind") == 1 and { "fdfind", "--type", "f", "--strip-cwd-prefix" }
+              or { "find", ".", "-type", "f" },
+          },
+        },
+        extensions = {
+          fzf = {
+            fuzzy = true,
+            override_generic_sorter = true,
+            override_file_sorter = true,
+            case_mode = "smart_case",
+          },
+        },
+      })
+
+      -- Load fzf extension if available
+      pcall(require("telescope").load_extension, "fzf")
     end,
   },
 
@@ -104,10 +136,15 @@ require("lazy").setup({
     config = function()
       require("mason").setup()
       require("mason-lspconfig").setup({
-        ensure_installed = { "lua_ls", "pyright", "ts_ls" },
+        ensure_installed = { "lua_ls", "pyright", "typescript-language-server" },
         handlers = {
           function(server_name)
-            require("lspconfig")[server_name].setup({})
+            -- Map typescript-language-server to tsserver for lspconfig
+            if server_name == "typescript-language-server" then
+              require("lspconfig").tsserver.setup({})
+            else
+              require("lspconfig")[server_name].setup({})
+            end
           end,
         },
       })

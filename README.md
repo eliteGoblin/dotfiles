@@ -29,6 +29,7 @@ cd ~/.dotfiles
 - **`setup_ubuntu/`** - Ubuntu-specific setup and documentation
   - `requirements/` - High-level requirements for tools and configurations
   - `cheatsheet.md` - Quick reference for essential commands
+  - `scripts/` - Utility scripts for setup and troubleshooting
   - `claude_worknotes/` - Implementation details and troubleshooting context (git-ignored)
 
 ### Utilities
