@@ -1,0 +1,35 @@
+=== Dotfiles Installation Started at Sat 11 Oct 2025 08:57:40 AEDT ===
+[0;34m[INFO][0m === Dotfiles Installation Script ===
+[0;34m[INFO][0m Installation directory: /Users/frank.sun/devel/dotfiles/dotfiles
+[0;34m[INFO][0m Log file: /Users/frank.sun/devel/dotfiles/dotfiles/install.log
+[0;34m[INFO][0m Checking prerequisites...
+[0;32m[SUCCESS][0m ZSH found: /bin/zsh
+[0;32m[SUCCESS][0m Git found: /usr/bin/git
+[0;34m[INFO][0m Starting dotfiles installation from: /Users/frank.sun/devel/dotfiles/dotfiles
+[0;34m[INFO][0m Installing ZSH configuration...
+[0;34m[INFO][0m Removing existing symlink: /Users/frank.sun/.zshrc
+[0;34m[INFO][0m Creating symlink: /Users/frank.sun/.zshrc -> /Users/frank.sun/devel/dotfiles/dotfiles/zsh/.zshrc
+[0;32m[SUCCESS][0m Symlink created for ZSH config
+[0;32m[SUCCESS][0m Verified: ZSH config symlink is working
+[0;34m[INFO][0m Removing existing symlink: /Users/frank.sun/.my_zshrc
+[0;34m[INFO][0m Creating symlink: /Users/frank.sun/.my_zshrc -> /Users/frank.sun/devel/dotfiles/dotfiles/zsh/.my_zshrc
+[0;32m[SUCCESS][0m Symlink created for ZSH modules
+[0;32m[SUCCESS][0m Verified: ZSH modules symlink is working
+[0;34m[INFO][0m Installing Neovim configuration...
+[0;34m[INFO][0m Removing existing symlink: /Users/frank.sun/.config/nvim
+[0;34m[INFO][0m Creating symlink: /Users/frank.sun/.config/nvim -> /Users/frank.sun/devel/dotfiles/dotfiles/nvim
+[0;32m[SUCCESS][0m Symlink created for Neovim config
+[0;32m[SUCCESS][0m Verified: Neovim config symlink is working
+[0;34m[INFO][0m Credentials directory already exists
+[0;34m[INFO][0m Setting permissions...
+[0;32m[SUCCESS][0m Dotfiles installation completed successfully!
+[0;34m[INFO][0m Testing installation...
+[0;32m[SUCCESS][0m ZSH configuration syntax is valid
+[0;32m[SUCCESS][0m Alias configuration is valid
+[0;32m[SUCCESS][0m Installation verification passed
+[0;34m[INFO][0m === Installation Summary ===
+[0;34m[INFO][0m Backup directory: /Users/frank.sun/.dotfiles_backup_20251011_085740 (if backups were created)
+[0;34m[INFO][0m Log file: /Users/frank.sun/devel/dotfiles/dotfiles/install.log
+[0;34m[INFO][0m To apply ZSH changes, restart your shell or run: source ~/.zshrc
+=== Dotfiles Installation Completed at Sat 11 Oct 2025 08:57:40 AEDT ===
+=== Dotfiles Installation Completed at Sat 11 Oct 2025 08:57:40 AEDT ===

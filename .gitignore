@@ -12,3 +12,6 @@ Session.vim
 # Zsh history
 .zsh_history
 .zcompdump*
+
+# Claude work notes (local context only)
+setup_ubuntu/claude_worknotes/

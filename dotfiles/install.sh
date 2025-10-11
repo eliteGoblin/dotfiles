@@ -140,6 +140,8 @@ install_dotfiles() {
     # Install Neovim configuration (if nvim directory exists)
     if [[ -d "$DOTFILES_DIR/nvim" ]]; then
         log_info "Installing Neovim configuration..."
+        # Create .config directory if it doesn't exist
+        mkdir -p "$HOME/.config"
         if create_symlink "$DOTFILES_DIR/nvim" "$HOME/.config/nvim" "Neovim config"; then
             verify_symlink "$HOME/.config/nvim" "Neovim config" || ((failed++))
         else
@@ -147,6 +149,18 @@ install_dotfiles() {
         fi
     else
         log_warning "Neovim configuration directory not found, skipping..."
+    fi
+
+    # Install Tmux configuration (if tmux directory exists)
+    if [[ -d "$DOTFILES_DIR/tmux" ]]; then
+        log_info "Installing Tmux configuration..."
+        if create_symlink "$DOTFILES_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf" "Tmux config"; then
+            verify_symlink "$HOME/.tmux.conf" "Tmux config" || ((failed++))
+        else
+            ((failed++))
+        fi
+    else
+        log_warning "Tmux configuration directory not found, skipping..."
     fi
     
     # Create credentials directory if it doesn't exist

@@ -1,165 +1,93 @@
-# Dotfiles
+# Development Environment Dotfiles
 
-Personal dotfiles repository with modular ZSH configuration and development tools.
+Complete macOS and Ubuntu VM development environment setup with synchronized configurations and tools.
 
-## Features
+## Overview
 
-- **Modular ZSH Configuration**: Organized configuration files with recursive loading
-- **Flexible Folder Structure**: Easy to extend with new configuration modules
-- **Neovim Configuration**: Custom Neovim setup
-- **Symlink-based Installation**: Clean installation without copying files
+This repository provides a unified development environment that works seamlessly across macOS host and Ubuntu VM guest systems. Designed for developers who want consistent tooling and configurations when working with Parallels Desktop virtualization.
 
-## Structure
+## Quick Start
 
-```
-dotfiles/
-├── zsh/
-│   ├── .zshrc              # Main ZSH configuration
-│   └── .my_zshrc/          # Modular ZSH components
-│       ├── alias/          # Common aliases
-│       └── personal/       # Personal configurations
-├── nvim/                   # Neovim configuration
-├── install.sh              # Installation script
-└── README.md               # This file
-```
+For new laptop initialization, Claude can automatically set up both macOS and Parallels VM for Ubuntu with common development tools.
 
-## Install
-
-### Prerequisites
-
-- Git
-- ZSH shell
-- Oh My Zsh (recommended)
-
-### Installation Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone <your-repo-url> ~/.dotfiles
-   cd ~/.dotfiles
-   ```
-
-2. **Run the installation script**
-   ```bash
-   ./install.sh
-   ```
-
-The installation script will:
-- Create symlinks for all configuration files
-- Backup existing configurations
-- Verify all symlinks are working correctly
-- Provide detailed logging of all operations
-
-### Manual Installation
-
-If you prefer manual setup:
-
-1. **ZSH Configuration**
-   ```bash
-   # Backup existing config
-   mv ~/.zshrc ~/.zshrc.backup 2>/dev/null || true
-   
-   # Create symlinks
-   ln -sf ~/.dotfiles/zsh/.zshrc ~/.zshrc
-   ln -sf ~/.dotfiles/zsh/.my_zshrc ~/.my_zshrc
-   ```
-
-2. **Neovim Configuration**
-   ```bash
-   # Backup existing config
-   mv ~/.config/nvim ~/.config/nvim.backup 2>/dev/null || true
-   
-   # Create symlink
-   ln -sf ~/.dotfiles/nvim ~/.config/nvim
-   ```
-
-3. **Create required directories**
-   ```bash
-   # Create credentials directory if needed
-   mkdir -p ~/.creds
-   ```
-
-### Verification
-
-After installation, verify everything is working:
-
+### Automated Setup
 ```bash
-# Check ZSH configuration loads
-zsh -c "echo 'ZSH config loaded successfully'"
-
-# Check aliases are available
-alias ll
-
-# Check nvim config is linked
-ls -la ~/.config/nvim
+git clone <repo> ~/.dotfiles
+cd ~/.dotfiles
+./install.sh
 ```
 
-## Configuration
+## Repository Structure
 
-### Adding New ZSH Modules
+### Core Configuration
+- **`dotfiles/`** - Main configuration files
+  - `nvim/` - Neovim mini-IDE configuration with LSP, file tree, fuzzy finder
+  - `tmux/` - Terminal multiplexer with intuitive keybindings and plugins
+  - `zsh/` - Modular ZSH configuration with Oh My Zsh integration
 
-1. Create new `.sh` files in `~/.my_zshrc/` or subdirectories
-2. The configuration will automatically load them on next shell restart
+### Ubuntu VM Setup
+- **`setup_ubuntu/`** - Ubuntu-specific setup and documentation
+  - `requirements/` - High-level requirements for tools and configurations
+  - `cheatsheet.md` - Quick reference for essential commands
+  - `claude_worknotes/` - Implementation details and troubleshooting context (git-ignored)
 
-### Modifying Module Folders
+### Utilities
+- **`util/`** - Utility scripts and tools
 
-Edit the `ZSHRC_LOAD_FOLDERS` array in `zsh/.zshrc`:
+## Key Features
 
-```bash
-ZSHRC_LOAD_FOLDERS=(
-    "$HOME/.my_zshrc"
-    "$HOME/.creds"
-    "$HOME/.work_config"  # Add new folder here
-)
-```
+### Cross-Platform Consistency
+- Identical configurations sync between macOS and Ubuntu VM
+- SSH-optimized settings for seamless remote development
+- Font rendering fixes for proper icon display over SSH
 
-### Credentials
+### Development Tools
+- **Neovim 0.11+** - Modern IDE with LSP, autocompletion, file tree
+- **Tmux** - Terminal multiplexer with Ctrl+a prefix and mouse support
+- **ZSH** - Enhanced shell with modular configuration system
+- **Git** - Version control with cross-platform settings
+- **Node.js/Python** - Language runtimes via NVM and pyenv
 
-Store sensitive configurations in `~/.creds/` directory:
-- Files should have `.sh` extension
-- They will be automatically sourced
-- This directory is gitignored for security
+### Productivity Features
+- File tree navigation with git integration
+- Fuzzy finding for files and content
+- Integrated terminal within editor
+- Session persistence and restoration
+- SSH port forwarding for development servers
 
-## Troubleshooting
+## Platform Support
 
-### Common Issues
+### macOS Host
+- Native development environment
+- Homebrew package management
+- Keychain SSH integration
 
-1. **Symlink creation fails**
-   - Check file permissions
-   - Ensure target directories exist
-   - Run with appropriate user permissions
+### Ubuntu VM (Parallels)
+- ARM64 and x86_64 architecture support
+- Optimized for SSH access from macOS
+- Identical tool versions and configurations
 
-2. **ZSH configuration not loading**
-   - Verify symlinks: `ls -la ~/.zshrc`
-   - Check file permissions: `ls -l ~/.dotfiles/zsh/.zshrc`
-   - Test configuration: `zsh -n ~/.zshrc`
+## Installation
 
-3. **Aliases not working**
-   - Check if files in `~/.my_zshrc/` have correct permissions
-   - Verify shell is actually ZSH: `echo $SHELL`
-   - Restart shell or run `source ~/.zshrc`
+The install script creates symlinks for configurations and handles:
+- Automatic backups of existing configs
+- Cross-platform compatibility checks
+- Plugin installation and setup
+- Error handling and recovery
 
-### Uninstallation
+## Development Workflow
 
-To remove dotfiles configuration:
+1. **Code on Ubuntu VM** via SSH from macOS terminal
+2. **Preview locally** using autossh port forwarding
+3. **Consistent experience** with synchronized tools and keybindings
+4. **Session management** with tmux for persistent development sessions
 
-```bash
-# Remove symlinks
-rm ~/.zshrc ~/.my_zshrc
-rm -rf ~/.config/nvim
+## Requirements
 
-# Restore backups if they exist
-mv ~/.zshrc.backup ~/.zshrc 2>/dev/null || true
-mv ~/.config/nvim.backup ~/.config/nvim 2>/dev/null || true
-```
+See `setup_ubuntu/requirements/` for detailed specifications:
+- Core development tools
+- Editor and IDE configurations
+- SSH and networking setup
+- VM and virtualization requirements
 
-## Contributing
-
-1. Make changes to the appropriate configuration files
-2. Test changes in a new shell session
-3. Update documentation if needed
-4. Commit and push changes
-
-## License
-
-Personal use only.
+This setup enables efficient development across both local macOS and virtualized Ubuntu environments with a unified, consistent experience.

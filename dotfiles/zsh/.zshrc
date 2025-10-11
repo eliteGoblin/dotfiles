@@ -18,9 +18,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.tfenv/bin:$PATH"
 
 
-# SSH agent setup
-eval "$(ssh-agent -s)"
-ssh-add ~/.ssh/id_ed25519
+# SSH agent setup moved to .my_zshrc/ssh/ssh.sh for platform-aware configuration
 
 # NVM setup
 export NVM_DIR="$HOME/.nvm"
