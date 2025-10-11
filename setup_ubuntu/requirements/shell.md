@@ -14,6 +14,26 @@
 - Command history suggestions while typing
 - Fast directory navigation with `j <directory>`
 - No plugin errors on ZSH startup
+- Platform-specific configurations loaded automatically
+
+## Platform-Specific Features
+
+### macOS-Only Configuration
+- **Word jumping with Option+Arrow keys** (requires iTerm2 setup)
+- **Module**: `.my_zshrc/macos/keybindings.sh`
+- **Auto-detection**: Only loads on `darwin` systems
+
+### Required iTerm2 Setup (macOS only)
+To enable Option+Arrow word jumping:
+
+1. **Open iTerm2 Preferences**: `⌘,`
+2. **Navigate to Profiles**: Select your profile → Keys tab
+3. **Configure Option Keys** (at bottom of Keys tab):
+   - **Left Option Key**: `Esc+`
+   - **Right Option Key**: `Esc+`
+4. **Result**: Option+← and Option+→ will jump between words
+
+**Note**: Ubuntu terminal doesn't need this configuration as word jumping works differently.
 
 ## Tmux Configuration
 

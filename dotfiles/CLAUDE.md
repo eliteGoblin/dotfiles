@@ -94,13 +94,19 @@ Fixed critical issue with alias loading where `find` command wasn't traversing s
 ```
 ~/.my_zshrc/               # Symlink to dotfiles/zsh/.my_zshrc/
 ├── alias/
-│   ├── alias.sh          # Personal aliases  
+│   ├── alias.sh          # Personal aliases
 │   ├── common.sh         # Common aliases (ll, grep, git shortcuts)
 │   └── test.sh           # Test alias (mytest)
 ├── autojump/
 │   └── autojump.sh       # Autojump configuration
+├── macos/
+│   └── keybindings.sh    # macOS-only iTerm2 key bindings
 ├── node/
 │   └── nvm.sh            # Node version manager
+├── python/
+│   └── pyenv.sh          # Python version manager
+├── ssh/
+│   └── ssh.sh            # Platform-aware SSH agent
 └── PATH/
     └── bin.sh            # PATH modifications
 ```

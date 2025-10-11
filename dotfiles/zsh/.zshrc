@@ -17,6 +17,9 @@ source $ZSH/oh-my-zsh.sh
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.tfenv/bin:$PATH"
 
+# Key bindings moved to platform-specific modules
+# macOS iTerm2 keybindings: .my_zshrc/macos/keybindings.sh
+
 
 # SSH agent setup moved to .my_zshrc/ssh/ssh.sh for platform-aware configuration
 
