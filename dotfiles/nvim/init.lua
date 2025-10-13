@@ -26,6 +26,10 @@ vim.opt.signcolumn = "yes"
 vim.opt.encoding = "utf-8"
 vim.opt.fileencoding = "utf-8"
 
+-- Split windows behavior (open new splits to right and below)
+vim.opt.splitright = true    -- Vertical splits open to the right
+vim.opt.splitbelow = true    -- Horizontal splits open below
+
 -- Plugins
 require("lazy").setup({
   -- File icons (recommended for file trees)

@@ -62,6 +62,7 @@ source .venv/bin/activate
 - fzf # Fuzzy finder for files and command history
 - tree # Directory structure visualization
 - tig # Text-mode interface for git repositories
+- glow # Render markdown beautifully in terminal (snap on Ubuntu, brew on macOS)
 - htop # Better top with colors and interactivity
 - curl # HTTP client for API testing
 - jq # JSON processor and pretty printer
@@ -83,6 +84,19 @@ source .venv/bin/activate
 2. **NEVER install Python via apt/brew** - only use pyenv
 3. Configure shell integration in dotfiles before language installation
 4. Set up mirrors before package installation
+
+## Package Management Strategy
+### Ubuntu
+- **Prefer snap packages** for modern CLI tools (glow, etc.)
+  - Benefits: Auto-updates, sandboxed, consistent across distros
+  - Example: `sudo snap install glow`
+- **Use apt** for system tools and libraries
+- **Avoid manual binary downloads** unless necessary
+
+### macOS
+- **Use Homebrew** for all CLI tools
+  - Example: `brew install glow`
+- Maintain consistency with brew formulae
 
 ## Notes for Claude
 - **NEVER touch system Python** - always use pyenv for Python development
