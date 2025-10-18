@@ -5,10 +5,38 @@
 - IP range: 10.211.55.x # Parallels default NAT network
 
 ## VM Specifications
-- Memory: 8GB
-- CPUs: 4 cores
+- Memory: 20GB (optimal for heavy dev + Docker builds)
+- CPUs: 8 cores (recommended for parallel builds)
 - Storage: Dynamic allocation
 - OS: Ubuntu 24.04 ARM64
+
+### Resource Allocation Rationale
+**For Mac with 48GB RAM and 14 CPU cores:**
+- **20GB RAM allocation** handles:
+  - Ubuntu system: ~800MB
+  - Development tools (ZSH/tmux/nvim): ~300MB
+  - Docker daemon: ~600MB
+  - Large Docker builds (5GB+): ~5-6GB
+  - Multiple dev servers (node, n8n, etc): ~2-3GB
+  - Concurrent Claude AI sessions: ~500MB
+  - Headroom for npm/cargo parallel builds: ~7-8GB
+  - **Prevents swap usage** under heavy load
+- **8 CPU cores** enables:
+  - Parallel compilation (make -j8, cargo build)
+  - Docker multi-stage builds (concurrent stages)
+  - Multiple concurrent docker-compose builds
+  - Concurrent dev servers without bottlenecks
+  - Leaves 6 cores for macOS
+
+**Why 20GB instead of 16GB:**
+- Observed usage: 4GB VM was using 3.3GB + 1.8GB swap (total ~5GB needed minimum)
+- Heavy workload: Multiple Claude sessions + Docker builds + dev servers
+- Safety margin: Prevents OOM kills during peak usage
+- Mac impact: 48GB - 20GB = 28GB free (plenty for macOS)
+
+**Minimum configuration** (not recommended for heavy workloads):
+- Memory: 8GB (may cause OOM with large Docker builds)
+- CPUs: 4 cores (slower parallel builds)
 
 ## SSH Configuration
 - SSH server: openssh-server # Auto-installed during setup
@@ -17,9 +45,25 @@
 
 ## Essential Settings
 ```bash
-# Configure VM settings via prlctl
-prlctl set ubuntu-vm --memsize 8192 --cpus 4
-prlctl set ubuntu-vm --device-set net0 --type shared
+# Configure VM settings via prlctl (VM must be stopped first)
+prlctl stop "Ubuntu 24.04.3 ARM64"
+prlctl set "Ubuntu 24.04.3 ARM64" --memsize 20480 --cpus 8
+prlctl set "Ubuntu 24.04.3 ARM64" --device-set net0 --type shared
+prlctl start "Ubuntu 24.04.3 ARM64"
+```
+
+**Note**: Memory changes require VM shutdown. CPU changes are safer when VM is stopped.
+
+## Backup Configuration (SmartGuard)
+- **Enabled**: Yes (automatic snapshots)
+- **Interval**: Weekly (every 7 days)
+- **Max snapshots**: 3 (automatic rotation)
+- **Location**: `~/Parallels/Ubuntu 24.04.3 ARM64.pvm/Snapshots/`
+
+**Check backup status**:
+```bash
+prlctl snapshot-list "Ubuntu 24.04.3 ARM64"
+ls -lh "~/Parallels/Ubuntu 24.04.3 ARM64.pvm/Snapshots/"
 ```
 
 ## Notes for Claude
@@ -27,6 +71,8 @@ prlctl set ubuntu-vm --device-set net0 --type shared
 - SSH access configured via host alias `ubuntu`
 - Default shell must be ZSH for dotfiles compatibility
 - Terminal preference: terminator over default terminal
+- **Resource allocation**: Always verify Mac's total resources before adjusting VM
+- **VM modifications**: Always stop VM before changing memory or CPU allocation
 
 ## Port Mapping
 
