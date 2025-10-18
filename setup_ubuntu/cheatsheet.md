@@ -234,18 +234,33 @@ scp file ubuntu:~/    # Copy file to VM
 scp ubuntu:~/file .   # Copy file from VM
 ```
 
-### Port Forwarding for Development (autossh)
+### macportmap Utility (Recommended)
+```bash
+# Quick port forwarding with auto-reconnection
+macportmap 3000         # Ubuntu:3000 → Mac:13000
+macportmap 5173         # Ubuntu:5173 → Mac:15173
+macportmap 8000         # Ubuntu:8000 → Mac:18000
+
+# Management commands
+macportmap list         # Show all active mappings
+macportmap stop 3000    # Stop specific forwarding
+macportmap stopall      # Stop all forwardings
+macportmap logs 3000    # View connection logs
+
+# Access in macOS browser (port + 10000)
+open http://localhost:13000  # For Ubuntu:3000
+open http://localhost:15173  # For Ubuntu:5173
+```
+
+### Manual Port Forwarding (Alternative)
 ```bash
 # Forward VM development servers to macOS
 autossh -M 20000 -L 3000:localhost:3000 ubuntu  # React/Next.js
 autossh -M 20001 -L 8080:localhost:8080 ubuntu  # General web
 autossh -M 20002 -L 5000:localhost:5000 ubuntu  # Flask/Express
-autossh -M 20003 -L 4000:localhost:4000 ubuntu  # Gatsby
 
 # Background persistent forwarding
 autossh -M 20000 -f -N -L 3000:localhost:3000 ubuntu
-
-# Access in macOS browser: http://localhost:3000
 ```
 
 ### Development Workflow
@@ -254,11 +269,11 @@ autossh -M 20000 -f -N -L 3000:localhost:3000 ubuntu
 ssh ubuntu
 cd project && npm run dev  # Runs on port 3000
 
-# 2. Forward port (in new macOS terminal)
-autossh -M 20000 -L 3000:localhost:3000 ubuntu
+# 2. Forward port (in macOS terminal)
+macportmap 3000          # Much simpler!
 
 # 3. Access in macOS browser
-open http://localhost:3000
+open http://localhost:13000  # Note: port 3000 + 10000 = 13000
 ```
 
 ### SSH Session Management

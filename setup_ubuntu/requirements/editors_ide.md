@@ -59,7 +59,13 @@
 - `Ctrl+n` → Toggle file tree
 - `Space+e` → Find current file in tree
 - `Space+w` → Save file
-- `Space+qq` → Quit all
+- `Space+qq` → Quit all safely (prompts for unsaved)
+- `Space+qQ` → Force quit all (discards changes)
+
+#### Copy Path Commands
+- `Space+cpf` → Copy full file path to clipboard
+- `Space+cpr` → Copy relative path to clipboard
+- `Space+cpn` → Copy file name only to clipboard
 
 #### File Tree (nvim-tree)
 - `a` → Create file

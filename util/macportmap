@@ -1,0 +1,242 @@
+#!/bin/bash
+
+# macportmap - Port mapping utility for Ubuntu VM
+# Maps Ubuntu VM ports to macOS localhost with 10000 offset
+
+VM_NAME="Ubuntu 24.04.3 ARM64"
+SSH_HOST="ubuntu"  # Use SSH config alias instead of IP
+PORT_OFFSET=10000
+PID_DIR="$HOME/.local/var/macportmap"
+LOG_DIR="$HOME/.local/var/log/macportmap"
+
+# Create directories if they don't exist
+mkdir -p "$PID_DIR" "$LOG_DIR"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+function show_help() {
+    cat << EOF
+Usage: macportmap [COMMAND] [OPTIONS]
+
+Commands:
+    PORT                Map Ubuntu VM port to macOS (adds 10000 offset)
+                        Example: macportmap 5678 → maps VM:5678 to Mac:15678
+
+    list, status        Show all active port mappings
+    stop PORT           Stop forwarding for specific port
+    stopall             Stop all port forwardings
+    logs PORT           Show logs for specific port
+    help                Show this help message
+
+Examples:
+    macportmap 3000      # Map Ubuntu:3000 → Mac:13000
+    macportmap 5678      # Map Ubuntu:5678 → Mac:15678
+    macportmap list      # Show all active mappings
+    macportmap stop 3000 # Stop forwarding Ubuntu:3000
+    macportmap stopall   # Stop all forwardings
+
+Notes:
+    - Mappings use autossh for auto-reconnection
+    - macOS port = Ubuntu port + 10000
+    - Logs stored in: $LOG_DIR
+EOF
+}
+
+function is_port_forwarded() {
+    local port=$1
+    local pid_file="$PID_DIR/port_${port}.pid"
+
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file")
+        if ps -p "$pid" > /dev/null 2>&1; then
+            return 0
+        else
+            # Process died, clean up pid file
+            rm -f "$pid_file"
+        fi
+    fi
+    return 1
+}
+
+function start_forwarding() {
+    local vm_port=$1
+    local mac_port=$((vm_port + PORT_OFFSET))
+    local pid_file="$PID_DIR/port_${vm_port}.pid"
+    local log_file="$LOG_DIR/port_${vm_port}.log"
+
+    # Check if already forwarded
+    if is_port_forwarded "$vm_port"; then
+        echo -e "${YELLOW}⚠️  Port $vm_port is already forwarded to localhost:$mac_port${NC}"
+        return 1
+    fi
+
+    # Check if SSH connection is available
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_HOST" exit 2>/dev/null; then
+        echo -e "${RED}❌ Cannot connect to SSH host '$SSH_HOST'${NC}"
+        echo -e "${YELLOW}💡 Make sure VM is running and 'ssh ubuntu' works${NC}"
+        return 1
+    fi
+
+    # Start autossh for auto-reconnection
+    echo -e "${BLUE}🔄 Starting port forward: Ubuntu:$vm_port → Mac:$mac_port${NC}"
+
+    # Use autossh with monitoring disabled (-M 0) and run in background
+    AUTOSSH_LOGFILE="$log_file" autossh -M 0 -f -N \
+        -o "ServerAliveInterval=10" \
+        -o "ServerAliveCountMax=3" \
+        -o "ExitOnForwardFailure=yes" \
+        -o "StrictHostKeyChecking=no" \
+        -o "UserKnownHostsFile=/dev/null" \
+        -o "LogLevel=ERROR" \
+        -L "$mac_port:localhost:$vm_port" \
+        "$SSH_HOST"
+
+    # Get the PID of autossh
+    sleep 1
+    local pid=$(pgrep -f "autossh.*$mac_port:localhost:$vm_port")
+
+    if [ -n "$pid" ]; then
+        echo "$pid" > "$pid_file"
+        echo -e "${GREEN}✅ Port forwarding established:${NC}"
+        echo -e "    Ubuntu VM: localhost:$vm_port"
+        echo -e "    macOS:     localhost:$mac_port"
+        echo -e "    PID:       $pid"
+        return 0
+    else
+        echo -e "${RED}❌ Failed to start port forwarding${NC}"
+        return 1
+    fi
+}
+
+function stop_forwarding() {
+    local vm_port=$1
+    local mac_port=$((vm_port + PORT_OFFSET))
+    local pid_file="$PID_DIR/port_${vm_port}.pid"
+
+    if ! is_port_forwarded "$vm_port"; then
+        echo -e "${YELLOW}⚠️  Port $vm_port is not currently forwarded${NC}"
+        return 1
+    fi
+
+    local pid=$(cat "$pid_file")
+    echo -e "${BLUE}🛑 Stopping port forward for Ubuntu:$vm_port (Mac:$mac_port)${NC}"
+
+    # Kill the autossh process
+    kill "$pid" 2>/dev/null
+
+    # Also kill any ssh processes for this port
+    pkill -f "ssh.*$mac_port:localhost:$vm_port" 2>/dev/null
+
+    # Remove pid file
+    rm -f "$pid_file"
+
+    echo -e "${GREEN}✅ Port forwarding stopped${NC}"
+    return 0
+}
+
+function list_forwardings() {
+    echo -e "${BLUE}📊 Active Port Mappings:${NC}"
+    echo "----------------------------------------"
+
+    local found=0
+    for pid_file in "$PID_DIR"/*.pid; do
+        if [ -f "$pid_file" ]; then
+            local port=$(basename "$pid_file" .pid | cut -d_ -f2)
+            local pid=$(cat "$pid_file")
+
+            if ps -p "$pid" > /dev/null 2>&1; then
+                local mac_port=$((port + PORT_OFFSET))
+                echo -e "${GREEN}✓${NC} Ubuntu:$port → Mac:$mac_port (PID: $pid)"
+                found=1
+            else
+                # Clean up dead pid file
+                rm -f "$pid_file"
+            fi
+        fi
+    done
+
+    if [ $found -eq 0 ]; then
+        echo -e "${YELLOW}No active port forwardings${NC}"
+    fi
+
+    echo "----------------------------------------"
+    return 0
+}
+
+function stop_all() {
+    echo -e "${BLUE}🛑 Stopping all port forwardings...${NC}"
+
+    local count=0
+    for pid_file in "$PID_DIR"/*.pid; do
+        if [ -f "$pid_file" ]; then
+            local port=$(basename "$pid_file" .pid | cut -d_ -f2)
+            stop_forwarding "$port"
+            ((count++))
+        fi
+    done
+
+    if [ $count -eq 0 ]; then
+        echo -e "${YELLOW}No active forwardings to stop${NC}"
+    else
+        echo -e "${GREEN}✅ Stopped $count port forwarding(s)${NC}"
+    fi
+
+    return 0
+}
+
+function show_logs() {
+    local port=$1
+    local log_file="$LOG_DIR/port_${port}.log"
+
+    if [ -f "$log_file" ]; then
+        echo -e "${BLUE}📄 Logs for port $port:${NC}"
+        tail -20 "$log_file"
+    else
+        echo -e "${YELLOW}No logs found for port $port${NC}"
+    fi
+}
+
+# Main command handling
+case "$1" in
+    "")
+        show_help
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    list|status)
+        list_forwardings
+        ;;
+    stop)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please specify a port number${NC}"
+            echo "Usage: macportmap stop PORT"
+            exit 1
+        fi
+        stop_forwarding "$2"
+        ;;
+    stopall)
+        stop_all
+        ;;
+    logs)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please specify a port number${NC}"
+            echo "Usage: macportmap logs PORT"
+            exit 1
+        fi
+        show_logs "$2"
+        ;;
+    [0-9]*)
+        start_forwarding "$1"
+        ;;
+    *)
+        echo -e "${RED}Unknown command: $1${NC}"
+        show_help
+        exit 1
+        ;;
+esac

@@ -260,8 +260,28 @@ require("lazy").setup({
 
 -- Keymaps quality-of-life
 local map = vim.keymap.set
-map("n", "<leader>qq", "<cmd>qa!<cr>", { desc = "Quit all" })
+map("n", "<leader>qq", "<cmd>qa<cr>", { desc = "Quit all safely (prompts for unsaved)" })
+map("n", "<leader>qQ", "<cmd>qa!<cr>", { desc = "Force quit all (discards changes)" })
 map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
+
+-- Copy file path keybindings
+map("n", "<leader>cpf", function()
+  local path = vim.fn.expand("%:p")
+  vim.fn.setreg("+", path)
+  print("📋 Copied full path: " .. path)
+end, { desc = "Copy full file path" })
+
+map("n", "<leader>cpr", function()
+  local path = vim.fn.expand("%:.")
+  vim.fn.setreg("+", path)
+  print("📋 Copied relative path: " .. path)
+end, { desc = "Copy relative file path" })
+
+map("n", "<leader>cpn", function()
+  local name = vim.fn.expand("%:t")
+  vim.fn.setreg("+", name)
+  print("📋 Copied file name: " .. name)
+end, { desc = "Copy file name only" })
 
 -- Terminal keymaps
 map("t", "<esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
