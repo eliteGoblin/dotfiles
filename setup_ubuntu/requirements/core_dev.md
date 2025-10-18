@@ -3,6 +3,7 @@
 ## Base System
 - Ubuntu 24.04
 - terminator # Multi-tab terminal
+- ~/.local/bin in PATH # For user-installed scripts and binaries
 
 ## Programming Languages
 - Node.js via NVM # LTS version, project-specific version management
@@ -49,10 +50,11 @@ source .venv/bin/activate
 
 ## Essential Dev Tools
 - git # Version control
+- gh # GitHub CLI for PR/issue management
 - neovim # Text editor with LSP
 - tmux # Terminal multiplexer
-- docker # Container runtime
-- docker-compose # Multi-container orchestration
+- docker # Container runtime (see Docker Installation section below)
+- sqlite3 # Lightweight database for development and testing
 
 ## Productivity Tools
 - ripgrep # Fast grep replacement for code search
@@ -75,6 +77,73 @@ source .venv/bin/activate
 - zoxide # Smarter cd with frecency algorithm
 - delta # Better git diff viewer
 
+## Docker Installation (Ubuntu ONLY)
+
+**CRITICAL**: Ubuntu VMs are used as development machines and MUST install Docker using Docker's official repository, NOT Ubuntu's built-in packages.
+
+### Why Official Docker Repository?
+- Ubuntu's `docker.io` and snap packages are outdated
+- Missing Docker Compose V2 plugin integration
+- Lacks latest features and security patches
+- Official repo ensures `docker compose` (not `docker-compose`) works correctly
+
+### Installation Requirements for Claude
+Before installing Docker on Ubuntu, Claude MUST:
+
+1. **Check latest official guide**: https://docs.docker.com/engine/install/ubuntu/
+2. **Follow that official method** exactly (instructions below may become outdated)
+
+### Official Installation Steps
+```bash
+# 1. Remove old Docker packages
+sudo apt-get remove docker docker-engine docker.io containerd runc podman-docker
+
+# 2. Update package index and install prerequisites
+sudo apt-get update
+sudo apt-get install ca-certificates curl gnupg
+
+# 3. Add Docker's official GPG key
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# 4. Set up Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 5. Install Docker Engine, CLI, Buildx, and Compose plugin
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 6. Verify installation
+docker --version
+docker compose version  # Note: "compose" not "docker-compose"
+
+# 7. Post-installation: Add user to docker group
+sudo usermod -aG docker $USER
+newgrp docker  # Or logout/login to apply
+
+# 8. Enable and start Docker service
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# 9. Test installation
+docker run hello-world
+```
+
+### Verification Checklist
+- [ ] `docker --version` shows latest Docker Engine version
+- [ ] `docker compose version` shows Docker Compose V2 (plugin)
+- [ ] Docker commands work without `sudo`
+- [ ] `docker run hello-world` succeeds
+
+### macOS Docker Installation
+- Install Docker Desktop from https://www.docker.com/products/docker-desktop
+- Or use Homebrew: `brew install --cask docker`
+- Docker Desktop includes Docker Engine, CLI, Compose V2, and Buildx
+
 ## Mirror Configurations
 - **npm**: `npm config set registry https://registry.npmmirror.com`
 - **pip**: Tsinghua University mirror in `~/.pip/pip.conf`
@@ -89,19 +158,26 @@ source .venv/bin/activate
 ### Ubuntu
 - **Prefer snap packages** for modern CLI tools (glow, etc.)
   - Benefits: Auto-updates, sandboxed, consistent across distros
-  - Example: `sudo snap install glow`
+  - Example: `sudo snap install glow gh`
 - **Use apt** for system tools and libraries
+  - Essential databases: `sudo apt install sqlite3 libsqlite3-dev`
+  - GitHub CLI alternative: `sudo apt install gh` (if snap not preferred)
 - **Avoid manual binary downloads** unless necessary
 
 ### macOS
 - **Use Homebrew** for all CLI tools
-  - Example: `brew install glow`
+  - Example: `brew install glow sqlite3 gh`
 - Maintain consistency with brew formulae
+- SQLite3: Usually pre-installed, update via Homebrew if needed
+- GitHub CLI: `brew install gh` for PR/issue management
 
 ## Notes for Claude
 - **NEVER touch system Python** - always use pyenv for Python development
 - **NEVER install Python directly** - only via pyenv
-- Add user to docker group for non-sudo access
+- **DOCKER (Ubuntu)**: ALWAYS check https://docs.docker.com/engine/install/ubuntu/ before installing
+- **DOCKER (Ubuntu)**: NEVER use `docker.io`, snap, or Ubuntu's default packages
+- **DOCKER (Ubuntu)**: MUST use Docker's official APT repository for latest versions
+- **DOCKER**: Add user to docker group for non-sudo access
 - Configure mirrors first for reliable package installation
 - Pyenv shell integration is modularized in `.my_zshrc/python/pyenv.sh`
 - Verify `python --version` shows pyenv-managed version, not system
