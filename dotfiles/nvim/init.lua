@@ -205,6 +205,15 @@ require("lazy").setup({
     config = function()
       require("lualine").setup({
         options = { theme = "auto" },
+        tabline = {
+          lualine_a = {
+            {
+              'tabs',
+              mode = 2,  -- Show tab number + name
+              max_length = vim.o.columns,
+            }
+          },
+        },
       })
     end,
   },
@@ -265,6 +274,14 @@ local map = vim.keymap.set
 map("n", "<leader>qq", "<cmd>qa<cr>", { desc = "Quit all safely (prompts for unsaved)" })
 map("n", "<leader>qQ", "<cmd>qa!<cr>", { desc = "Force quit all (discards changes)" })
 map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
+
+-- Tab management
+map("n", "<leader>tn", "<cmd>tabnew<cr>", { desc = "New tab" })
+map("n", "<leader>tc", "<cmd>tabclose<cr>", { desc = "Close tab" })
+map("n", "<leader>to", "<cmd>tabonly<cr>", { desc = "Close other tabs" })
+
+-- Simple tab naming using vim's tabline (shows in lualine tabline)
+-- Note: Tab names are based on the buffer name/file opened in that tab
 
 -- Copy file path keybindings
 map("n", "<leader>cpf", function()
