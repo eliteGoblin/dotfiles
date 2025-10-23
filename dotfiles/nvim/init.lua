@@ -59,6 +59,12 @@ require("lazy").setup({
         filters = { dotfiles = false },
         git = { enable = true, ignore = false },
         actions = { open_file = { quit_on_open = false } },
+        sync_root_with_cwd = true,      -- Always sync tree root with global CWD
+        respect_buf_cwd = true,         -- Respect :tcd and :lcd per tab/window
+        update_focused_file = {
+          enable = true,
+          update_root = true,           -- Change tree root when focus (and CWD) changes
+        },
       })
       local function open_if_directory(data)
         local is_dir = vim.fn.isdirectory(data.file) == 1
