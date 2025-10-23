@@ -59,4 +59,7 @@ for folder in "${ZSHRC_LOAD_FOLDERS[@]}"; do
     load_zsh_modules "$folder"
 done
 
-
+# Terminal settings for proper color and UTF-8 support (especially over SSH)
+export TERM=xterm-256color
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
