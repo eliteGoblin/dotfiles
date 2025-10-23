@@ -146,15 +146,10 @@ require("lazy").setup({
     config = function()
       require("mason").setup()
       require("mason-lspconfig").setup({
-        ensure_installed = { "lua_ls", "pyright", "typescript-language-server" },
+        ensure_installed = { "lua_ls", "pyright", "tsserver" },
         handlers = {
           function(server_name)
-            -- Map typescript-language-server to tsserver for lspconfig
-            if server_name == "typescript-language-server" then
-              require("lspconfig").tsserver.setup({})
-            else
-              require("lspconfig")[server_name].setup({})
-            end
+            require("lspconfig")[server_name].setup({})
           end,
         },
       })
