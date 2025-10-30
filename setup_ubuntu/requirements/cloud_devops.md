@@ -29,6 +29,12 @@
 - **macOS**: `brew install tfenv`
 - **Verify**: `terraform --version` and `tfenv --version`
 
+### TFLint (Terraform Linter)
+- **Ubuntu**: `curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash`
+- **macOS**: `brew install tflint`
+- **Verify**: `tflint --version`
+- **Purpose**: Linter for Terraform code, catches errors and best practice violations
+
 ### kubectl (Kubernetes CLI)
 - **Ubuntu**: `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && chmod +x kubectl && sudo mv kubectl /usr/local/bin/`
 - **macOS**: `brew install kubectl`
