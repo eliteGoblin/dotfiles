@@ -28,6 +28,14 @@
 | `zt` | Move cursor line to top |
 | `zb` | Move cursor line to bottom |
 
+### Jump Between Files
+| Key | Action |
+|-----|--------|
+| `Ctrl+o` | Jump to previous location (like browser back) |
+| `Ctrl+i` | Jump to next location (like browser forward) |
+| `Ctrl+^` | Toggle between current and previous file |
+| `:jumps` | Show jump list |
+
 ### Search & Find
 | Key | Action |
 |-----|--------|
