@@ -9,6 +9,60 @@
 - Node.js via NVM # LTS version, project-specific version management
 - Python via pyenv # Latest stable, project-specific version management
 
+### JavaScript/TypeScript Development Tools
+
+**CRITICAL**: Install these tools globally via npm after setting up NVM.
+
+**Core TypeScript Tools**:
+- `typescript` # TypeScript compiler (tsc)
+- `ts-node` # Execute TypeScript files directly without compilation
+- `@types/node` # Node.js type definitions for TypeScript
+
+**Installation**:
+```bash
+# After NVM is installed and Node.js is active
+npm install -g typescript ts-node
+
+# Verify installation
+tsc --version    # Should show TypeScript version
+ts-node --version # Should show ts-node version
+```
+
+**Usage**:
+```bash
+# Compile TypeScript to JavaScript
+tsc file.ts           # Produces file.js
+tsc --watch          # Watch mode for development
+
+# Run TypeScript directly
+ts-node file.ts      # Execute without compiling
+
+# Initialize TypeScript project
+tsc --init           # Creates tsconfig.json
+```
+
+**Project-specific Installation (Recommended)**:
+```bash
+# In project directory
+npm install --save-dev typescript ts-node @types/node
+
+# Use with npx (no global install needed)
+npx tsc --version
+npx ts-node file.ts
+```
+
+**Benefits**:
+- Write type-safe JavaScript with TypeScript
+- Catch errors at compile time instead of runtime
+- Better IDE support with IntelliSense
+- Execute `.ts` files directly with ts-node during development
+- Consistent tooling across macOS and Ubuntu
+
+**LSP Support**:
+- Neovim uses `ts_ls` language server (installed via Mason)
+- Provides autocomplete, error checking, and go-to-definition
+- Works independently of global TypeScript installation
+
 ### Python Version Management (pyenv)
 **CRITICAL**: Never modify system Python. Use pyenv for all Python development.
 
