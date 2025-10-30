@@ -15,17 +15,19 @@
 
 **Core TypeScript Tools**:
 - `typescript` # TypeScript compiler (tsc)
-- `ts-node` # Execute TypeScript files directly without compilation
+- `tsx` # Fast TypeScript execution (modern, recommended)
+- `ts-node` # TypeScript execution (legacy, for compatibility)
 - `@types/node` # Node.js type definitions for TypeScript
 
 **Installation**:
 ```bash
 # After NVM is installed and Node.js is active
-npm install -g typescript ts-node
+npm install -g typescript tsx ts-node
 
 # Verify installation
-tsc --version    # Should show TypeScript version
-ts-node --version # Should show ts-node version
+tsc --version      # TypeScript compiler
+tsx --version      # tsx runner (modern)
+ts-node --version  # ts-node runner (legacy)
 ```
 
 **Usage**:
@@ -33,22 +35,32 @@ ts-node --version # Should show ts-node version
 # Compile TypeScript to JavaScript
 tsc file.ts           # Produces file.js
 tsc --watch          # Watch mode for development
+tsc --init           # Initialize tsconfig.json
 
-# Run TypeScript directly
-ts-node file.ts      # Execute without compiling
+# Run TypeScript directly (RECOMMENDED - fast, modern)
+tsx file.ts          # Execute with tsx (uses esbuild, very fast)
+tsx watch file.ts    # Watch mode with auto-restart
 
-# Initialize TypeScript project
-tsc --init           # Creates tsconfig.json
+# Run TypeScript (legacy compatibility)
+ts-node file.ts      # Execute with ts-node (slower, more compatible)
 ```
+
+**Why tsx over ts-node?**
+- ⚡ Much faster (uses esbuild instead of tsc)
+- ✅ Better ESM (ES modules) support out of the box
+- ✅ Built-in watch mode: `tsx watch file.ts`
+- ✅ Simpler configuration for modern TypeScript
+- ✅ Actively maintained and modern
 
 **Project-specific Installation (Recommended)**:
 ```bash
 # In project directory
-npm install --save-dev typescript ts-node @types/node
+npm install --save-dev typescript tsx @types/node
 
 # Use with npx (no global install needed)
 npx tsc --version
-npx ts-node file.ts
+npx tsx file.ts
+npx tsx watch file.ts
 ```
 
 **Benefits**:
