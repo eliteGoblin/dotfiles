@@ -119,6 +119,19 @@
 | `Ctrl+r` | Redo |
 | `.` | Repeat last change |
 
+### Folding (JSON/YAML/Markdown)
+| Key | Action |
+|-----|--------|
+| `zc` | Close fold at cursor |
+| `zo` | Open fold at cursor |
+| `za` | Toggle fold at cursor |
+| `zM` | Close all folds |
+| `zR` | Open all folds |
+| `zr` | Open one fold level |
+| `zm` | Close one fold level |
+| `zj` | Move to next fold |
+| `zk` | Move to previous fold |
+
 ## Visual Mode
 
 | Key | Action |

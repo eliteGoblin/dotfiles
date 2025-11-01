@@ -129,7 +129,7 @@ require("lazy").setup({
     build = ":TSUpdate",
     config = function()
       require("nvim-treesitter.configs").setup({
-        ensure_installed = { "lua", "python", "javascript", "typescript", "json", "yaml", "markdown" },
+        ensure_installed = { "lua", "python", "javascript", "typescript", "json", "jsonc", "yaml", "markdown", "markdown_inline" },
         highlight = { enable = true },
         indent = { enable = true },
       })
@@ -291,4 +291,17 @@ map("t", "<C-h>", [[<C-\><C-n><C-w>h]], { desc = "Go to left window" })
 map("t", "<C-j>", [[<C-\><C-n><C-w>j]], { desc = "Go to lower window" })
 map("t", "<C-k>", [[<C-\><C-n><C-w>k]], { desc = "Go to upper window" })
 map("t", "<C-l>", [[<C-\><C-n><C-w>l]], { desc = "Go to right window" })
+
+-- Tree-sitter folding for JSON/YAML/Markdown
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "json", "jsonc", "yaml", "markdown" },
+  callback = function()
+    vim.opt_local.foldmethod = "expr"
+    vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+    vim.opt_local.foldenable = true
+    vim.opt_local.foldlevel = 99
+    vim.opt_local.foldlevelstart = 99
+    vim.opt_local.foldcolumn = "1"
+  end,
+})
 
