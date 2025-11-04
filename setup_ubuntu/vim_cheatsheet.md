@@ -132,6 +132,21 @@
 | `zj` | Move to next fold |
 | `zk` | Move to previous fold |
 
+### Indentation
+| Key | Action |
+|-----|--------|
+| `>>` | Indent line |
+| `<<` | Unindent line |
+| `==` | Auto-indent line |
+| `>` (visual) | Indent selection |
+| `<` (visual) | Unindent selection |
+| `=` (visual) | Auto-indent selection |
+
+**Auto-configured per filetype:**
+- JS/TS/JSON/YAML/HTML/CSS/Terraform: 2 spaces
+- Python: 4 spaces
+- Go/Makefile: Tabs (width 8)
+
 ## Visual Mode
 
 | Key | Action |
