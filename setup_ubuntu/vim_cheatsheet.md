@@ -284,6 +284,7 @@ const obj = { name: 'test', value: 42 };
 | `K` | Hover documentation |
 | `gi` | Go to implementation |
 | `gr` | Show references |
+| `gl` | Show diagnostic at cursor |
 | `[d` | Previous diagnostic |
 | `]d` | Next diagnostic |
 | `:LspInfo` | Show LSP status |

@@ -266,6 +266,9 @@ map("n", "<leader>qq", "<cmd>qa<cr>", { desc = "Quit all safely (prompts for uns
 map("n", "<leader>qQ", "<cmd>qa!<cr>", { desc = "Force quit all (discards changes)" })
 map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
 
+-- LSP diagnostics
+map("n", "gl", vim.diagnostic.open_float, { desc = "Show diagnostic" })
+
 -- Copy file path keybindings
 map("n", "<leader>cpf", function()
   local path = vim.fn.expand("%:p")
