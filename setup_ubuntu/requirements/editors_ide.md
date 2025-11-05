@@ -105,6 +105,95 @@
 - `Esc` → Exit terminal mode (in terminal)
 - `Ctrl+h/j/k/l` → Navigate between windows (from terminal)
 
+## Optional: Code Formatters (Recommended but Not Required)
+
+**Note:** Formatters improve code consistency and style. Install only when needed for specific projects. Not required for basic Neovim functionality.
+
+### Prettier (JavaScript/TypeScript/JSON/YAML/HTML/CSS)
+Industry-standard formatter for web development.
+
+**Installation:**
+```bash
+npm install -g prettier
+```
+
+**Supported formats:**
+- JavaScript, TypeScript, JSX, TSX
+- JSON, JSONC
+- YAML
+- HTML, CSS, SCSS
+- Markdown
+
+**Usage:**
+```bash
+# Format single file
+prettier --write file.js
+
+# Format all JS/TS files
+prettier --write "src/**/*.{js,ts,jsx,tsx}"
+
+# Or in Neovim
+:!prettier --write %
+```
+
+### black (Python)
+Python's equivalent to Prettier - opinionated, fast formatter.
+
+**Installation:**
+```bash
+pip install black
+```
+
+**Usage:**
+```bash
+# Format single file
+black file.py
+
+# Format directory
+black src/
+
+# Or in Neovim
+:!black %
+```
+
+### terraform fmt (Terraform/HCL)
+Built-in Terraform formatter (already available if tfenv installed).
+
+**Usage:**
+```bash
+# Format single file
+terraform fmt file.tf
+
+# Format directory
+terraform fmt -recursive .
+
+# Or in Neovim
+:!terraform fmt %
+```
+
+### gofmt (Go)
+Built-in Go formatter (comes with Go installation).
+
+**Usage:**
+```bash
+# Format single file
+gofmt -w file.go
+
+# Or in Neovim
+:!gofmt -w %
+```
+
+### Optional: conform.nvim Plugin (Format on Save)
+For automatic formatting on save with per-filetype formatters.
+
+**Setup:** Add conform.nvim to lazy.nvim config, configure formatters per filetype.
+**Benefit:** Auto-format on save, no manual commands needed.
+**Drawback:** Requires formatter binaries installed globally.
+
+See [conform.nvim docs](https://github.com/stevearc/conform.nvim) for configuration.
+
+---
+
 ## Font & Icon Rendering
 
 ### Font Requirement
