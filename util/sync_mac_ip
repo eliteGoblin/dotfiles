@@ -13,7 +13,7 @@ VM_NAME="Ubuntu 24.04.3 ARM64"
 SSH_CONFIG="$HOME/.ssh/config"
 HOSTS_FILE="/etc/hosts"
 SSH_HOST_ENTRY="ubuntu"
-HOSTS_ENTRY="ubuntu.local"
+HOSTS_ENTRIES=("ubuntu.local" "fsai.local")  # Hostnames to update in /etc/hosts
 NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
 PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
 
@@ -78,15 +78,16 @@ get_ssh_config_ip() {
     ' "$SSH_CONFIG"
 }
 
-# Get current IP from /etc/hosts
+# Get current IP from /etc/hosts for a specific hostname
 get_hosts_ip() {
+    local hostname="${1:-${HOSTS_ENTRIES[0]}}"
     if [[ ! -f "$HOSTS_FILE" ]]; then
         echo ""
         return
     fi
 
-    # Extract IP for ubuntu.local
-    grep -E "^[0-9.]+\s+$HOSTS_ENTRY" "$HOSTS_FILE" 2>/dev/null | awk '{print $1}' || echo ""
+    # Extract IP for the hostname (only first match)
+    grep -E "^[0-9.]+\s+$hostname" "$HOSTS_FILE" 2>/dev/null | awk 'NR==1 {print $1}' || echo ""
 }
 
 # Update SSH config
@@ -123,21 +124,29 @@ update_ssh_config() {
 # Update /etc/hosts
 update_hosts_file() {
     local new_ip=$1
-    local current_ip
-    current_ip=$(get_hosts_ip)
 
-    print_info "Updating /etc/hosts: ${current_ip:-<none>} → $new_ip"
+    print_info "Updating /etc/hosts for VM hostnames..."
 
     # Create backup
     sudo cp "$HOSTS_FILE" "$HOSTS_FILE.bak"
 
-    # Remove old entry if exists
-    if [[ -n "$current_ip" ]]; then
-        sudo sed -i '' "/^[0-9.]*\s*$HOSTS_ENTRY/d" "$HOSTS_FILE"
-    fi
+    # Update each hostname
+    for hostname in "${HOSTS_ENTRIES[@]}"; do
+        local current_ip
+        current_ip=$(get_hosts_ip "$hostname")
 
-    # Add new entry
-    echo "$new_ip $HOSTS_ENTRY" | sudo tee -a "$HOSTS_FILE" >/dev/null
+        # Remove ALL old entries for this hostname (in case of duplicates)
+        sudo sed -i '' "/^[0-9.][0-9.]*[[:space:]][[:space:]]*${hostname}$/d" "$HOSTS_FILE"
+
+        # Add new entry
+        echo "$new_ip $hostname" | sudo tee -a "$HOSTS_FILE" >/dev/null
+
+        if [[ -n "$current_ip" ]]; then
+            print_info "  $hostname: $current_ip → $new_ip"
+        else
+            print_info "  $hostname: <none> → $new_ip"
+        fi
+    done
 
     print_success "✓ /etc/hosts updated"
 }
@@ -171,22 +180,27 @@ cmd_status() {
         print_warning "SSH config: ✗ Out of sync (configured: $ssh_ip, actual: $vm_ip)"
     fi
 
-    # Check /etc/hosts
-    local hosts_ip
-    hosts_ip=$(get_hosts_ip)
+    # Check /etc/hosts for all hostnames
+    local all_hosts_in_sync=true
+    for hostname in "${HOSTS_ENTRIES[@]}"; do
+        local hosts_ip
+        hosts_ip=$(get_hosts_ip "$hostname")
 
-    if [[ -z "$hosts_ip" ]]; then
-        print_warning "/etc/hosts:  ✗ No entry for $HOSTS_ENTRY"
-    elif [[ "$hosts_ip" == "$vm_ip" ]]; then
-        print_success "/etc/hosts:  ✓ In sync ($hosts_ip)"
-    else
-        print_warning "/etc/hosts:  ✗ Out of sync (configured: $hosts_ip, actual: $vm_ip)"
-    fi
+        if [[ -z "$hosts_ip" ]]; then
+            print_warning "/etc/hosts:  ✗ No entry for $hostname"
+            all_hosts_in_sync=false
+        elif [[ "$hosts_ip" == "$vm_ip" ]]; then
+            print_success "/etc/hosts:  ✓ $hostname ($hosts_ip)"
+        else
+            print_warning "/etc/hosts:  ✗ $hostname out of sync (configured: $hosts_ip, actual: $vm_ip)"
+            all_hosts_in_sync=false
+        fi
+    done
 
     echo
 
     # Overall status
-    if [[ "$ssh_ip" == "$vm_ip" && "$hosts_ip" == "$vm_ip" ]]; then
+    if [[ "$ssh_ip" == "$vm_ip" ]] && $all_hosts_in_sync; then
         print_success "Overall: ✓ All in sync"
         return 0
     else
