@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# sync_mac_ip - Auto-sync Ubuntu VM IP to Mac's SSH config and /etc/hosts
+#
+# This script automatically detects the Ubuntu VM's current IP address (which changes
+# when you switch networks in bridge mode) and updates:
+# - ~/.ssh/config (HostName for ubuntu)
+# - /etc/hosts (ubuntu.local entry)
+
+# Configuration
+VM_NAME="Ubuntu 24.04.3 ARM64"
+SSH_CONFIG="$HOME/.ssh/config"
+HOSTS_FILE="/etc/hosts"
+SSH_HOST_ENTRY="ubuntu"
+HOSTS_ENTRY="ubuntu.local"
+NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
+PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Utility functions
+print_error() {
+    echo -e "${RED}ERROR: $*${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}$*${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}WARNING: $*${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}$*${NC}"
+}
+
+# Get VM IP address
+get_vm_ip() {
+    local vm_ip
+
+    # Check if VM is running
+    if ! "$PRLCTL" list | grep -q "$VM_NAME"; then
+        print_error "VM '$VM_NAME' is not running"
+        exit 1
+    fi
+
+    # Get IP from VM network interface (macOS grep doesn't support -P)
+    vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
+
+    if [[ -z "$vm_ip" ]]; then
+        print_error "Could not detect VM IP address. Network might not be ready."
+        print_info "Try restarting NetworkManager in VM: $PRLCTL exec \"$VM_NAME\" sudo systemctl restart NetworkManager"
+        exit 1
+    fi
+
+    echo "$vm_ip"
+}
+
+# Get current IP from SSH config
+get_ssh_config_ip() {
+    if [[ ! -f "$SSH_CONFIG" ]]; then
+        echo ""
+        return
+    fi
+
+    # Extract HostName from ubuntu section
+    awk '
+        /^Host ubuntu$/ { found=1; next }
+        found && /^Host / { exit }
+        found && /^  HostName / { print $2; exit }
+    ' "$SSH_CONFIG"
+}
+
+# Get current IP from /etc/hosts
+get_hosts_ip() {
+    if [[ ! -f "$HOSTS_FILE" ]]; then
+        echo ""
+        return
+    fi
+
+    # Extract IP for ubuntu.local
+    grep -E "^[0-9.]+\s+$HOSTS_ENTRY" "$HOSTS_FILE" 2>/dev/null | awk '{print $1}' || echo ""
+}
+
+# Update SSH config
+update_ssh_config() {
+    local new_ip=$1
+    local current_ip
+    current_ip=$(get_ssh_config_ip)
+
+    if [[ -z "$current_ip" ]]; then
+        print_error "Could not find 'Host ubuntu' entry in $SSH_CONFIG"
+        exit 1
+    fi
+
+    if [[ "$current_ip" == "$new_ip" ]]; then
+        print_info "SSH config already up to date ($new_ip)"
+        return 0
+    fi
+
+    print_info "Updating SSH config: $current_ip → $new_ip"
+
+    # Create backup
+    cp "$SSH_CONFIG" "$SSH_CONFIG.bak"
+
+    # Update the IP using sed
+    sed -i '' "/^Host ubuntu$/,/^Host / s/^  HostName .*/  HostName $new_ip/" "$SSH_CONFIG"
+
+    # Remove old host key
+    ssh-keygen -R "$current_ip" 2>/dev/null || true
+    ssh-keygen -R "$SSH_HOST_ENTRY" 2>/dev/null || true
+
+    print_success "✓ SSH config updated"
+}
+
+# Update /etc/hosts
+update_hosts_file() {
+    local new_ip=$1
+    local current_ip
+    current_ip=$(get_hosts_ip)
+
+    print_info "Updating /etc/hosts: ${current_ip:-<none>} → $new_ip"
+
+    # Create backup
+    sudo cp "$HOSTS_FILE" "$HOSTS_FILE.bak"
+
+    # Remove old entry if exists
+    if [[ -n "$current_ip" ]]; then
+        sudo sed -i '' "/^[0-9.]*\s*$HOSTS_ENTRY/d" "$HOSTS_FILE"
+    fi
+
+    # Add new entry
+    echo "$new_ip $HOSTS_ENTRY" | sudo tee -a "$HOSTS_FILE" >/dev/null
+
+    print_success "✓ /etc/hosts updated"
+}
+
+# Status command
+cmd_status() {
+    echo
+    echo "=== Ubuntu VM IP Sync Status ==="
+    echo
+
+    # Get VM IP
+    local vm_ip
+    if ! vm_ip=$(get_vm_ip 2>&1); then
+        print_error "Cannot get VM IP"
+        echo "$vm_ip"
+        exit 1
+    fi
+
+    print_info "VM Current IP: $vm_ip"
+    echo
+
+    # Check SSH config
+    local ssh_ip
+    ssh_ip=$(get_ssh_config_ip)
+
+    if [[ -z "$ssh_ip" ]]; then
+        print_warning "SSH config: No 'Host ubuntu' entry found"
+    elif [[ "$ssh_ip" == "$vm_ip" ]]; then
+        print_success "SSH config: ✓ In sync ($ssh_ip)"
+    else
+        print_warning "SSH config: ✗ Out of sync (configured: $ssh_ip, actual: $vm_ip)"
+    fi
+
+    # Check /etc/hosts
+    local hosts_ip
+    hosts_ip=$(get_hosts_ip)
+
+    if [[ -z "$hosts_ip" ]]; then
+        print_warning "/etc/hosts:  ✗ No entry for $HOSTS_ENTRY"
+    elif [[ "$hosts_ip" == "$vm_ip" ]]; then
+        print_success "/etc/hosts:  ✓ In sync ($hosts_ip)"
+    else
+        print_warning "/etc/hosts:  ✗ Out of sync (configured: $hosts_ip, actual: $vm_ip)"
+    fi
+
+    echo
+
+    # Overall status
+    if [[ "$ssh_ip" == "$vm_ip" && "$hosts_ip" == "$vm_ip" ]]; then
+        print_success "Overall: ✓ All in sync"
+        return 0
+    else
+        print_warning "Overall: ✗ Out of sync - run 'sync_mac_ip sync' to fix"
+        return 1
+    fi
+}
+
+# Sync command
+cmd_sync() {
+    echo
+    print_info "=== Syncing Ubuntu VM IP ==="
+    echo
+
+    # Get VM IP
+    local vm_ip
+    vm_ip=$(get_vm_ip)
+
+    print_info "Detected VM IP: $vm_ip"
+    echo
+
+    # Update SSH config
+    update_ssh_config "$vm_ip"
+
+    # Update /etc/hosts (requires sudo)
+    update_hosts_file "$vm_ip"
+
+    echo
+    print_success "=== Sync Complete ==="
+    print_info "VM IP: $vm_ip"
+    print_info "You can now SSH with: ssh ubuntu"
+    print_info "Or use hostname: ssh parallels@ubuntu.local"
+    echo
+}
+
+# Help command
+cmd_help() {
+    cat <<'EOF'
+sync_mac_ip - Auto-sync Ubuntu VM IP to Mac's SSH config and /etc/hosts
+
+USAGE:
+    sync_mac_ip {status|sync|help}
+
+COMMANDS:
+    status      Check if VM IP is in sync with SSH config and /etc/hosts
+    sync        Sync VM IP to ~/.ssh/config and /etc/hosts (requires sudo for /etc/hosts)
+    help        Show this help message
+
+DESCRIPTION:
+    When using Ubuntu VM in bridge mode, the VM's IP address changes whenever
+    you switch networks (home WiFi → phone hotspot → office WiFi, etc.).
+
+    This script automatically detects the VM's current IP and updates:
+    - ~/.ssh/config (HostName for 'ubuntu' entry)
+    - /etc/hosts (ubuntu.local entry)
+
+    This allows you to always use 'ssh ubuntu' or 'ssh parallels@ubuntu.local'
+    regardless of which network you're connected to.
+
+WHEN TO USE:
+    Run 'sync_mac_ip sync' whenever:
+    - You switch networks (WiFi → hotspot, home → office, etc.)
+    - SSH to VM fails with "Connection refused" or "No route to host"
+    - After restarting the VM
+    - After restarting NetworkManager in the VM
+
+EXAMPLES:
+    # Check if in sync
+    sync_mac_ip status
+
+    # Sync after switching networks
+    sync_mac_ip sync
+
+    # Then SSH normally
+    ssh ubuntu
+
+NETWORK SCENARIOS:
+    Home WiFi:      VM gets 192.168.4.x    (from home router)
+    Phone Hotspot:  VM gets 172.20.10.x    (from iPhone)
+    Office WiFi:    VM gets 10.x.x.x       (from office router)
+
+    After running 'sync_mac_ip sync', SSH always works regardless of network!
+
+FILES MODIFIED:
+    ~/.ssh/config       - Updates HostName for 'Host ubuntu' entry
+    /etc/hosts          - Updates IP for 'ubuntu.local' entry
+
+    Backups created:
+    ~/.ssh/config.bak
+    /etc/hosts.bak
+
+REQUIREMENTS:
+    - Ubuntu VM running in bridge network mode
+    - Parallels Tools installed (prlctl command)
+    - sudo access (for /etc/hosts updates)
+
+EOF
+}
+
+# Main
+main() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        status)
+            cmd_status
+            ;;
+        sync)
+            cmd_sync
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            print_error "Unknown command: ${cmd:-<none>}"
+            echo
+            echo "Usage: sync_mac_ip {status|sync|help}"
+            echo
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
