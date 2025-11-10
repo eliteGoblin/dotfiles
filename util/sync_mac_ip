@@ -41,9 +41,11 @@ print_info() {
     echo -e "${BLUE}$*${NC}"
 }
 
-# Get VM IP address
+# Get VM IP address with auto-recovery
 get_vm_ip() {
     local vm_ip
+    local retry_count=0
+    local max_retries=1
 
     # Check if VM is running
     if ! "$PRLCTL" list | grep -q "$VM_NAME"; then
@@ -51,16 +53,41 @@ get_vm_ip() {
         exit 1
     fi
 
-    # Get IP from VM network interface (macOS grep doesn't support -P)
-    vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
+    while [[ $retry_count -le $max_retries ]]; do
+        # Get IP from VM network interface (macOS grep doesn't support -P)
+        vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
 
-    if [[ -z "$vm_ip" ]]; then
-        print_error "Could not detect VM IP address. Network might not be ready."
-        print_info "Try restarting NetworkManager in VM: $PRLCTL exec \"$VM_NAME\" sudo systemctl restart NetworkManager"
-        exit 1
-    fi
+        if [[ -n "$vm_ip" ]]; then
+            # Successfully got IP
+            echo "$vm_ip"
+            return 0
+        fi
 
-    echo "$vm_ip"
+        # No IP detected
+        if [[ $retry_count -eq 0 ]]; then
+            # First attempt failed, try auto-recovery
+            print_warning "VM is running but has no IPv4 address"
+            print_info "Attempting auto-recovery: restarting NetworkManager in VM..."
+
+            if "$PRLCTL" exec "$VM_NAME" sudo systemctl restart NetworkManager 2>/dev/null; then
+                print_info "Waiting for network to recover..."
+                sleep 6
+                ((retry_count++))
+            else
+                print_error "Failed to restart NetworkManager"
+                exit 1
+            fi
+        else
+            # Retry failed
+            print_error "Auto-recovery failed. VM still has no IPv4 address."
+            print_info "This usually happens when:"
+            print_info "  - You recently disconnected/reconnected to WiFi or hotspot"
+            print_info "  - The VM's DHCP client isn't working properly"
+            print_info ""
+            print_info "Try manually: $PRLCTL exec \"$VM_NAME\" sudo systemctl restart NetworkManager"
+            exit 1
+        fi
+    done
 }
 
 # Get current IP from SSH config
@@ -255,10 +282,19 @@ DESCRIPTION:
 
     This script automatically detects the VM's current IP and updates:
     - ~/.ssh/config (HostName for 'ubuntu' entry)
-    - /etc/hosts (ubuntu.local entry)
+    - /etc/hosts (ubuntu.local and fsai.local entries)
 
     This allows you to always use 'ssh ubuntu' or 'ssh parallels@ubuntu.local'
     regardless of which network you're connected to.
+
+AUTO-RECOVERY:
+    If the VM is running but has no IPv4 address (common after network
+    disconnect/reconnect), the script will automatically:
+    - Restart NetworkManager in the VM
+    - Wait for network to recover
+    - Retry getting the IP address
+
+    This handles cases like reconnecting to phone hotspot or WiFi.
 
 WHEN TO USE:
     Run 'sync_mac_ip sync' whenever:
