@@ -208,10 +208,10 @@ cmd_sync() {
     print_info "Detected VM IP: $vm_ip"
     echo
 
-    # Update SSH config
+    # Update SSH config (no sudo needed)
     update_ssh_config "$vm_ip"
 
-    # Update /etc/hosts (requires sudo)
+    # Update /etc/hosts (will prompt for sudo password if needed)
     update_hosts_file "$vm_ip"
 
     echo
@@ -232,7 +232,7 @@ USAGE:
 
 COMMANDS:
     status      Check if VM IP is in sync with SSH config and /etc/hosts
-    sync        Sync VM IP to ~/.ssh/config and /etc/hosts (requires sudo for /etc/hosts)
+    sync        Sync VM IP to ~/.ssh/config and /etc/hosts (will prompt for sudo password)
     help        Show this help message
 
 DESCRIPTION:
