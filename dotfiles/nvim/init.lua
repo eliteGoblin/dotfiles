@@ -258,6 +258,17 @@ require("lazy").setup({
       })
     end,
   },
+
+  -- Markdown rendering (works on macOS and Ubuntu)
+  {
+    "MeanderingProgrammer/render-markdown.nvim",
+    dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
+    ft = { "markdown" },
+    keys = {
+      { "<leader>mr", "<cmd>RenderMarkdown toggle<cr>", desc = "Toggle Markdown Render" },
+    },
+    opts = {},
+  },
 })
 
 -- Keymaps quality-of-life
