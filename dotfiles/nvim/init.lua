@@ -1,13 +1,7 @@
 -- ~/.config/nvim/init.lua
 
--- Filter out lspconfig deprecation warnings
-local notify = vim.notify
-vim.notify = function(msg, ...)
-  if msg:match("lspconfig") and msg:match("deprecated") then
-    return
-  end
-  notify(msg, ...)
-end
+-- Suppress lspconfig deprecation warnings (must be set before loading)
+vim.g.lspconfig_deprecation_warnings = false
 
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
