@@ -172,6 +172,7 @@ require("lazy").setup({
       require("mason-lspconfig").setup({
         -- Use Mason server names (different from lspconfig names)
         ensure_installed = { "lua_ls", "pyright", "ts_ls" },
+        automatic_enable = false,  -- Disable auto-enable to avoid conflicts with custom handlers
         handlers = {
           function(server_name)
             require("lspconfig")[server_name].setup({
