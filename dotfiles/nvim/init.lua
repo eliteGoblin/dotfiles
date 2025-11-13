@@ -22,6 +22,9 @@ vim.opt.termguicolors = true
 vim.opt.updatetime = 250
 vim.opt.signcolumn = "yes"
 
+-- Suppress lspconfig deprecation warnings (no action needed until v3.0.0)
+vim.g.lspconfig_deprecation_warnings = false
+
 -- Ensure proper encoding for icons over SSH
 vim.opt.encoding = "utf-8"
 vim.opt.fileencoding = "utf-8"
