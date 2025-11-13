@@ -146,6 +146,7 @@ require("lazy").setup({
     config = function()
       -- LSP keybindings that attach when language server starts
       local on_attach = function(client, bufnr)
+        print("[LSP] on_attach called for: " .. client.name)
         local opts = { buffer = bufnr, silent = true }
 
         -- Navigation
