@@ -171,7 +171,7 @@ require("lazy").setup({
         ensure_installed = { "lua_ls", "pyright", "ts_ls" },
       })
 
-      -- Use modern LspAttach autocmd (recommended for nvim 0.12+)
+      -- Use modern LspAttach autocmd (recommended for nvim 0.11+)
       -- This is more reliable than on_attach parameter
       vim.api.nvim_create_autocmd("LspAttach", {
         group = vim.api.nvim_create_augroup("UserLspConfig", {}),
@@ -202,13 +202,12 @@ require("lazy").setup({
         end,
       })
 
-      -- Setup LSP servers with mason-lspconfig automatic setup
-      require("mason-lspconfig").setup_handlers({
-        -- Default handler (called for each installed server)
-        function(server_name)
-          require("lspconfig")[server_name].setup({})
-        end,
-      })
+      -- Setup LSP servers - mason-lspconfig will auto-configure them
+      -- The LspAttach autocmd above will handle keybindings
+      local lspconfig = require("lspconfig")
+      lspconfig.ts_ls.setup({})
+      lspconfig.pyright.setup({})
+      lspconfig.lua_ls.setup({})
     end,
   },
 
