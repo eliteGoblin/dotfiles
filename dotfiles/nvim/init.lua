@@ -1,5 +1,8 @@
 -- ~/.config/nvim/init.lua
 
+-- Suppress lspconfig deprecation warnings (must be set before loading)
+vim.g.lspconfig_deprecation_warnings = false
+
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
@@ -21,9 +24,6 @@ vim.opt.relativenumber = true
 vim.opt.termguicolors = true
 vim.opt.updatetime = 250
 vim.opt.signcolumn = "yes"
-
--- Suppress lspconfig deprecation warnings (no action needed until v3.0.0)
-vim.g.lspconfig_deprecation_warnings = false
 
 -- Ensure proper encoding for icons over SSH
 vim.opt.encoding = "utf-8"
