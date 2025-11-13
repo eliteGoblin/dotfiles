@@ -1,8 +1,5 @@
 -- ~/.config/nvim/init.lua
 
--- Suppress lspconfig deprecation warnings (must be set before loading)
-vim.g.lspconfig_deprecation_warnings = false
-
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.loop.fs_stat(lazypath) then
