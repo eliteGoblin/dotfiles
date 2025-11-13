@@ -169,6 +169,13 @@ require("lazy").setup({
       end
 
       require("mason").setup()
+
+      -- Ensure node is in PATH for LSP servers (needed when using nvm)
+      local nvm_node_path = vim.fn.expand("~/.nvm/versions/node/v22.20.0/bin")
+      if vim.fn.isdirectory(nvm_node_path) == 1 then
+        vim.env.PATH = nvm_node_path .. ":" .. vim.env.PATH
+      end
+
       require("mason-lspconfig").setup({
         -- Use Mason server names (different from lspconfig names)
         ensure_installed = { "lua_ls", "pyright", "ts_ls" },
