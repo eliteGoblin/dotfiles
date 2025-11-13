@@ -172,13 +172,10 @@ require("lazy").setup({
       })
 
       -- Use modern LspAttach autocmd (recommended for nvim 0.11+)
-      -- This is more reliable than on_attach parameter
+      -- This automatically sets up keybindings when any LSP server attaches
       vim.api.nvim_create_autocmd("LspAttach", {
         group = vim.api.nvim_create_augroup("UserLspConfig", {}),
         callback = function(ev)
-          local client = vim.lsp.get_client_by_id(ev.data.client_id)
-          print("[LSP] Attached: " .. client.name)
-
           local opts = { buffer = ev.buf, silent = true }
 
           -- Navigation
