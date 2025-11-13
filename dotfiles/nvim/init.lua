@@ -171,9 +171,24 @@ require("lazy").setup({
       require("mason").setup()
 
       -- Ensure node is in PATH for LSP servers (needed when using nvm)
-      local nvm_node_path = vim.fn.expand("~/.nvm/versions/node/v22.20.0/bin")
-      if vim.fn.isdirectory(nvm_node_path) == 1 then
-        vim.env.PATH = nvm_node_path .. ":" .. vim.env.PATH
+      -- Find the current nvm node version dynamically
+      local nvm_current = vim.fn.expand("~/.nvm/current")
+      if vim.fn.isdirectory(nvm_current) == 1 then
+        vim.env.PATH = nvm_current .. "/bin:" .. vim.env.PATH
+      else
+        -- Fallback: try to find any node version
+        local nvm_versions = vim.fn.expand("~/.nvm/versions/node")
+        if vim.fn.isdirectory(nvm_versions) == 1 then
+          local handle = io.popen("ls -1t " .. nvm_versions .. " | head -1")
+          if handle then
+            local latest = handle:read("*l")
+            handle:close()
+            if latest then
+              local node_path = nvm_versions .. "/" .. latest .. "/bin"
+              vim.env.PATH = node_path .. ":" .. vim.env.PATH
+            end
+          end
+        end
       end
 
       require("mason-lspconfig").setup({
