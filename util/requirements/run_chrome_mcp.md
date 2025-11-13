@@ -18,7 +18,8 @@ Create a macOS shell script named `run_chrome_mcp` that:
 
 The Ubuntu side (Claude + Chrome DevTools MCP server configured with `--browserUrl=http://LAN_IP:9223`) is already set up and out of scope.
 
-## 2. Environment & assumptions
+#
+2. Environment & assumptions
 
 - OS: macOS.
 - Chrome binary path (standard install):

@@ -1,17 +1,20 @@
 # Core Development Tools
 
-## Base System
+**Target Environment**: Ubuntu VM (Primary development environment)
+**macOS Role**: UI/native apps only, minimal dev tools
+
+## Base System (Ubuntu Only)
 - Ubuntu 24.04
 - terminator # Multi-tab terminal
 - ~/.local/bin in PATH # For user-installed scripts and binaries
 
-## Programming Languages
+## Programming Languages (Ubuntu Only)
 - Node.js via NVM # LTS version, project-specific version management
 - Python via pyenv # Latest stable, project-specific version management
 
-### JavaScript/TypeScript Development Tools
+### JavaScript/TypeScript Development Tools (Ubuntu Only)
 
-**CRITICAL**: Install these tools globally via npm after setting up NVM.
+**CRITICAL**: Install these tools on Ubuntu only, after setting up NVM.
 
 **Core TypeScript Tools**:
 - `typescript` # TypeScript compiler (tsc)
@@ -110,38 +113,77 @@ source .venv/bin/activate
 - Prevents system Python corruption
 - Supports legacy project requirements
 
-## Language Version Managers
+## Language Version Managers (Ubuntu Only)
 - **pyenv** # Python version management (INSTALL FIRST)
 - **nvm** # Node.js version management (INSTALL FIRST)
 
-## Essential Dev Tools
+## Essential Dev Tools (Ubuntu Only)
 - git # Version control
 - gh # GitHub CLI for PR/issue management
 - neovim # Text editor with LSP
 - tmux # Terminal multiplexer
 - docker # Container runtime (see Docker Installation section below)
-- sqlite3 # Lightweight database for development and testing
 
-## Productivity Tools
-- ripgrep # Fast grep replacement for code search
-- fd-find # Fast find replacement with better defaults
-- bat # Cat replacement with syntax highlighting
-- eza # Ls replacement with git status and colors
-- fzf # Fuzzy finder for files and command history
-- tree # Directory structure visualization
-- tig # Text-mode interface for git repositories
-- glow # Render markdown beautifully in terminal (snap on Ubuntu, brew on macOS)
-- htop # Better top with colors and interactivity
-- curl # HTTP client for API testing
-- jq # JSON processor and pretty printer
-- make # Build automation
-- build-essential # C/C++ compilation tools
-- autossh # Persistent SSH tunnels with auto-reconnect
+## Database Tools (Ubuntu Only)
+```bash
+# SQLite - Lightweight database
+sudo apt install sqlite3 libsqlite3-dev
 
-## Additional Recommendations
-- lazygit # TUI for git operations
-- zoxide # Smarter cd with frecency algorithm
-- delta # Better git diff viewer
+# PostgreSQL client - psql, pg_dump, pg_restore
+sudo apt install postgresql-client
+
+# Verify installation
+sqlite3 --version
+psql --version
+```
+
+## Productivity Tools (Ubuntu Only)
+```bash
+# Core CLI tools
+sudo apt install -y ripgrep fd-find bat tree htop curl jq make build-essential autossh
+
+# Modern CLI tools (via snap for auto-updates)
+sudo snap install glow gh
+
+# Git TUI
+sudo snap install tig --classic
+sudo snap install lazygit
+
+# Eza (modern ls) - from official repo
+sudo mkdir -p /etc/apt/keyrings
+wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+sudo apt update
+sudo apt install eza
+
+# FZF (fuzzy finder) - install via git for latest version
+git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
+~/.fzf/install
+```
+
+## Additional Recommendations (Ubuntu Only)
+- **zoxide** # Smarter cd with frecency algorithm
+  ```bash
+  curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+  ```
+- **delta** # Better git diff viewer
+  ```bash
+  # Download from: https://github.com/dandavison/delta/releases
+  wget https://github.com/dandavison/delta/releases/download/0.17.0/git-delta_0.17.0_arm64.deb
+  sudo dpkg -i git-delta_0.17.0_arm64.deb
+  ```
+
+## macOS Setup (Minimal)
+**Only for UI and native apps - NOT for development**
+
+```bash
+# Only if you occasionally need git on macOS
+brew install git
+
+# macOS-specific apps (optional)
+# - Rectangle: Window management
+# - iTerm2: Better terminal (if not using SSH to Ubuntu)
+```
 
 ## Docker Installation (Ubuntu ONLY)
 
@@ -206,11 +248,9 @@ docker run hello-world
 - [ ] `docker run hello-world` succeeds
 
 ### macOS Docker Installation
-- Install Docker Desktop from https://www.docker.com/products/docker-desktop
-- Or use Homebrew: `brew install --cask docker`
-- Docker Desktop includes Docker Engine, CLI, Compose V2, and Buildx
+**NOT NEEDED** - All development happens on Ubuntu VM
 
-## Mirror Configurations
+## Mirror Configurations (Ubuntu Only)
 - **npm**: `npm config set registry https://registry.npmmirror.com`
 - **pip**: Tsinghua University mirror in `~/.pip/pip.conf`
 
@@ -220,30 +260,36 @@ docker run hello-world
 3. Configure shell integration in dotfiles before language installation
 4. Set up mirrors before package installation
 
-## Package Management Strategy
-### Ubuntu
-- **Prefer snap packages** for modern CLI tools (glow, etc.)
+## Package Management Strategy (Ubuntu Only)
+- **Prefer snap packages** for modern CLI tools (glow, gh, lazygit)
   - Benefits: Auto-updates, sandboxed, consistent across distros
-  - Example: `sudo snap install glow gh`
+  - Example: `sudo snap install glow gh lazygit`
 - **Use apt** for system tools and libraries
-  - Essential databases: `sudo apt install sqlite3 libsqlite3-dev`
-  - GitHub CLI alternative: `sudo apt install gh` (if snap not preferred)
+  - Databases: `sudo apt install sqlite3 libsqlite3-dev postgresql-client`
+  - Core tools: `sudo apt install ripgrep fd-find bat tree htop`
+- **Use official repos** for specific tools (eza, delta)
 - **Avoid manual binary downloads** unless necessary
 
-### macOS
-- **Use Homebrew** for all CLI tools
-  - Example: `brew install glow sqlite3 gh`
-- Maintain consistency with brew formulae
-- SQLite3: Usually pre-installed, update via Homebrew if needed
-- GitHub CLI: `brew install gh` for PR/issue management
-
 ## Notes for Claude
+
+### Development Environment Strategy
+- **ALL CODING happens on Ubuntu VM** - This is the primary development machine
+- **macOS is for UI/native apps ONLY** - Minimal dev tools, no language runtimes
+- **Dotfiles are synced** between macOS and Ubuntu, but tools differ by platform
+
+### Ubuntu-Specific Rules
 - **NEVER touch system Python** - always use pyenv for Python development
 - **NEVER install Python directly** - only via pyenv
-- **DOCKER (Ubuntu)**: ALWAYS check https://docs.docker.com/engine/install/ubuntu/ before installing
-- **DOCKER (Ubuntu)**: NEVER use `docker.io`, snap, or Ubuntu's default packages
-- **DOCKER (Ubuntu)**: MUST use Docker's official APT repository for latest versions
+- **DOCKER**: ALWAYS check https://docs.docker.com/engine/install/ubuntu/ before installing
+- **DOCKER**: NEVER use `docker.io`, snap, or Ubuntu's default packages
+- **DOCKER**: MUST use Docker's official APT repository for latest versions
 - **DOCKER**: Add user to docker group for non-sudo access
+- **DATABASE CLIENTS**: Install via apt (sqlite3, postgresql-client)
 - Configure mirrors first for reliable package installation
 - Pyenv shell integration is modularized in `.my_zshrc/python/pyenv.sh`
 - Verify `python --version` shows pyenv-managed version, not system
+
+### Installation Location
+- When installing dev tools → **Ubuntu only**
+- When installing UI apps → macOS only
+- When in doubt → **Ubuntu (it's the dev machine)**

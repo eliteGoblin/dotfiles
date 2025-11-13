@@ -1,1 +1,1 @@
-alias mytest="echo 'Hello, World!'"
+alias t=terraform

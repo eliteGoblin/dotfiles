@@ -144,31 +144,6 @@ require("lazy").setup({
       "williamboman/mason-lspconfig.nvim",
     },
     config = function()
-      -- LSP keybindings that attach when language server starts
-      local on_attach = function(client, bufnr)
-        print("[LSP] on_attach called for: " .. client.name)
-        local opts = { buffer = bufnr, silent = true }
-
-        -- Navigation
-        vim.keymap.set("n", "gd", vim.lsp.buf.definition, vim.tbl_extend("force", opts, { desc = "Go to definition" }))
-        vim.keymap.set("n", "gD", vim.lsp.buf.declaration, vim.tbl_extend("force", opts, { desc = "Go to declaration" }))
-        vim.keymap.set("n", "gr", vim.lsp.buf.references, vim.tbl_extend("force", opts, { desc = "Find references" }))
-        vim.keymap.set("n", "gi", vim.lsp.buf.implementation, vim.tbl_extend("force", opts, { desc = "Go to implementation" }))
-        vim.keymap.set("n", "gt", vim.lsp.buf.type_definition, vim.tbl_extend("force", opts, { desc = "Go to type definition" }))
-
-        -- Documentation
-        vim.keymap.set("n", "K", vim.lsp.buf.hover, vim.tbl_extend("force", opts, { desc = "Show hover documentation" }))
-
-        -- Code actions
-        vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
-        vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
-        vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format code" }))
-
-        -- Diagnostics
-        vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, vim.tbl_extend("force", opts, { desc = "Previous diagnostic" }))
-        vim.keymap.set("n", "]d", vim.diagnostic.goto_next, vim.tbl_extend("force", opts, { desc = "Next diagnostic" }))
-      end
-
       require("mason").setup()
 
       -- Ensure node is in PATH for LSP servers (needed when using nvm)
@@ -193,16 +168,47 @@ require("lazy").setup({
       end
 
       require("mason-lspconfig").setup({
-        -- Use Mason server names (different from lspconfig names)
         ensure_installed = { "lua_ls", "pyright", "ts_ls" },
       })
 
-      -- Manually setup LSP servers with on_attach
-      -- This is more reliable than using mason-lspconfig handlers
-      local lspconfig = require("lspconfig")
-      lspconfig.ts_ls.setup({ on_attach = on_attach })
-      lspconfig.pyright.setup({ on_attach = on_attach })
-      lspconfig.lua_ls.setup({ on_attach = on_attach })
+      -- Use modern LspAttach autocmd (recommended for nvim 0.12+)
+      -- This is more reliable than on_attach parameter
+      vim.api.nvim_create_autocmd("LspAttach", {
+        group = vim.api.nvim_create_augroup("UserLspConfig", {}),
+        callback = function(ev)
+          local client = vim.lsp.get_client_by_id(ev.data.client_id)
+          print("[LSP] Attached: " .. client.name)
+
+          local opts = { buffer = ev.buf, silent = true }
+
+          -- Navigation
+          vim.keymap.set("n", "gd", vim.lsp.buf.definition, vim.tbl_extend("force", opts, { desc = "Go to definition" }))
+          vim.keymap.set("n", "gD", vim.lsp.buf.declaration, vim.tbl_extend("force", opts, { desc = "Go to declaration" }))
+          vim.keymap.set("n", "gr", vim.lsp.buf.references, vim.tbl_extend("force", opts, { desc = "Find references" }))
+          vim.keymap.set("n", "gi", vim.lsp.buf.implementation, vim.tbl_extend("force", opts, { desc = "Go to implementation" }))
+          vim.keymap.set("n", "gt", vim.lsp.buf.type_definition, vim.tbl_extend("force", opts, { desc = "Go to type definition" }))
+
+          -- Documentation
+          vim.keymap.set("n", "K", vim.lsp.buf.hover, vim.tbl_extend("force", opts, { desc = "Show hover documentation" }))
+
+          -- Code actions
+          vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
+          vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
+          vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format code" }))
+
+          -- Diagnostics
+          vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, vim.tbl_extend("force", opts, { desc = "Previous diagnostic" }))
+          vim.keymap.set("n", "]d", vim.diagnostic.goto_next, vim.tbl_extend("force", opts, { desc = "Next diagnostic" }))
+        end,
+      })
+
+      -- Setup LSP servers with mason-lspconfig automatic setup
+      require("mason-lspconfig").setup_handlers({
+        -- Default handler (called for each installed server)
+        function(server_name)
+          require("lspconfig")[server_name].setup({})
+        end,
+      })
     end,
   },
 
