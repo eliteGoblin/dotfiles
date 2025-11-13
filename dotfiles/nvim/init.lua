@@ -195,14 +195,14 @@ require("lazy").setup({
       require("mason-lspconfig").setup({
         -- Use Mason server names (different from lspconfig names)
         ensure_installed = { "lua_ls", "pyright", "ts_ls" },
-        handlers = {
-          function(server_name)
-            require("lspconfig")[server_name].setup({
-              on_attach = on_attach,
-            })
-          end,
-        },
       })
+
+      -- Manually setup LSP servers with on_attach
+      -- This is more reliable than using mason-lspconfig handlers
+      local lspconfig = require("lspconfig")
+      lspconfig.ts_ls.setup({ on_attach = on_attach })
+      lspconfig.pyright.setup({ on_attach = on_attach })
+      lspconfig.lua_ls.setup({ on_attach = on_attach })
     end,
   },
 
