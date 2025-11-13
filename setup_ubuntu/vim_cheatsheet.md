@@ -106,6 +106,22 @@
 | `yi{` or `yiB` | Copy inside braces |
 | `yaw` | Copy a word |
 
+### System Clipboard (Copy/Paste with OS)
+| Key | Action |
+|-----|--------|
+| `"+y` | Copy to system clipboard (with motion) |
+| `"+yy` | Copy line to system clipboard |
+| `"+yG` | Copy to end of file to clipboard |
+| `"+p` | Paste from system clipboard after |
+| `"+P` | Paste from system clipboard before |
+| `gg"+yG` | Copy entire file to clipboard |
+| `V"+y` (visual) | Copy selection to clipboard |
+
+**Examples:**
+- `"+yiw` - Copy word to clipboard
+- `V3j"+y` - Select 3 lines and copy to clipboard
+- `"+p` - Paste from clipboard
+
 ### Paste
 | Key | Action |
 |-----|--------|
@@ -277,18 +293,49 @@ const obj = { name: 'test', value: 42 };
 
 ## LSP Commands (with nvim-lspconfig)
 
+**These keybindings work when LSP is attached to a buffer (TypeScript, Python, Lua files)**
+
+### Navigation
 | Key | Action |
 |-----|--------|
-| `gd` | Go to definition |
+| `gd` | **Go to definition** (jumps to actual file) |
 | `gD` | Go to declaration |
-| `K` | Hover documentation |
+| `gr` | Find all references (where symbol is used) |
 | `gi` | Go to implementation |
-| `gr` | Show references |
-| `gl` | Show diagnostic at cursor |
+| `gt` | Go to type definition |
+| `Ctrl+o` | Jump back to previous location |
+| `Ctrl+i` | Jump forward to next location |
+
+### Documentation & Help
+| Key | Action |
+|-----|--------|
+| `K` | Show hover documentation/function signature |
+
+### Code Actions
+| Key | Action |
+|-----|--------|
+| `Space+rn` | Rename symbol across project |
+| `Space+ca` | Code actions (auto-fix, imports, etc.) |
+| `Space+f` | Format code |
+
+### Diagnostics (Errors/Warnings)
+| Key | Action |
+|-----|--------|
 | `[d` | Previous diagnostic |
 | `]d` | Next diagnostic |
-| `:LspInfo` | Show LSP status |
+| `gl` | Show diagnostic at cursor |
+
+### LSP Management
+| Key | Action |
+|-----|--------|
+| `:LspInfo` | Show LSP status for current buffer |
+| `:LspRestart` | Restart LSP server |
 | `:Mason` | Open Mason package manager |
+
+**Language servers installed:**
+- `ts_ls` - TypeScript/JavaScript
+- `pyright` - Python
+- `lua_ls` - Lua
 
 ## Custom Keybindings (from your init.lua)
 
@@ -327,6 +374,11 @@ const obj = { name: 'test', value: 42 };
 | `Space+cpf` | Copy full file path |
 | `Space+cpr` | Copy relative file path |
 | `Space+cpn` | Copy file name only |
+
+### Markdown
+| Key | Action |
+|-----|--------|
+| `Space+mr` | Toggle markdown rendering (render-markdown.nvim) |
 
 ### Commenting (Comment.nvim)
 | Key | Action |
