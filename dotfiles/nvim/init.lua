@@ -103,9 +103,10 @@ require("lazy").setup({
         pickers = {
           find_files = {
             hidden = false, -- Default: don't show hidden files
-            find_command = vim.fn.executable("fd") == 1 and { "fd", "--type", "f", "--strip-cwd-prefix" }
-              or vim.fn.executable("fdfind") == 1 and { "fdfind", "--type", "f", "--strip-cwd-prefix" }
-              or { "find", ".", "-type", "f" },
+            follow = true, -- Follow symlinks
+            find_command = vim.fn.executable("fd") == 1 and { "fd", "--type", "f", "--follow", "--strip-cwd-prefix" }
+              or vim.fn.executable("fdfind") == 1 and { "fdfind", "--type", "f", "--follow", "--strip-cwd-prefix" }
+              or { "find", ".", "-type", "f", "-L" },
           },
         },
         extensions = {
