@@ -50,6 +50,7 @@ require("lazy").setup({
     keys = {
       { "<C-n>", "<cmd>NvimTreeToggle<cr>", desc = "Toggle file tree" },
       { "<leader>e", "<cmd>NvimTreeFindFileToggle<cr>", desc = "Reveal current file" },
+      { "<leader>E", function() require("nvim-tree.api").tree.change_root(vim.fn.getcwd()) end, desc = "Reset tree to project root" },
     },
     config = function()
       require("nvim-tree").setup({
@@ -63,7 +64,7 @@ require("lazy").setup({
         respect_buf_cwd = true,         -- Respect :tcd and :lcd per tab/window
         update_focused_file = {
           enable = true,
-          update_root = true,           -- Change tree root when focus (and CWD) changes
+          update_root = false,          -- Don't auto-change tree root (use Space+E to reset to project root)
         },
       })
       local function open_if_directory(data)
