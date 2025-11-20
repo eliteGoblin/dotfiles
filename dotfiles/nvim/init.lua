@@ -50,7 +50,6 @@ require("lazy").setup({
     keys = {
       { "<C-n>", "<cmd>NvimTreeToggle<cr>", desc = "Toggle file tree" },
       { "<leader>e", "<cmd>NvimTreeFindFileToggle<cr>", desc = "Reveal current file" },
-      { "<leader>cr", function() require("nvim-tree.api").tree.change_root(vim.fn.getcwd()) end, desc = "Reset tree to project root" },
     },
     config = function()
       require("nvim-tree").setup({
