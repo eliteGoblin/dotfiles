@@ -332,18 +332,26 @@ map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
 -- LSP diagnostics
 map("n", "gl", vim.diagnostic.open_float, { desc = "Show diagnostic" })
 
--- Copy file path keybindings
+-- Copy file/folder path keybindings
+-- These work for both files and directories intelligently
 map("n", "<leader>cpf", function()
-  local path = vim.fn.expand("%:p")
+  local current = vim.fn.expand("%:p")
+  -- Check if current buffer is a directory or file
+  local path = vim.fn.isdirectory(current) == 1 and current or current
   vim.fn.setreg("+", path)
   print("📋 Copied full path: " .. path)
-end, { desc = "Copy full file path" })
+end, { desc = "Copy full file/folder path" })
 
 map("n", "<leader>cpr", function()
-  local path = vim.fn.expand("%:.")
+  local current_full = vim.fn.expand("%:p")
+  -- For directories, get relative path of the directory itself
+  -- For files, get relative path of the file
+  local path = vim.fn.isdirectory(current_full) == 1
+    and vim.fn.fnamemodify(current_full, ":.")
+    or vim.fn.expand("%:.")
   vim.fn.setreg("+", path)
   print("📋 Copied relative path: " .. path)
-end, { desc = "Copy relative file path" })
+end, { desc = "Copy relative file/folder path" })
 
 map("n", "<leader>cpn", function()
   local name = vim.fn.expand("%:t")
