@@ -1,4 +1,4 @@
-# 🧰 macOS + Ubuntu 24.04 Dev Environment Bootstrap (Claude-Aware)
+# 🧰 macOS + Ubuntu 24.04 Dev Environment Bootstrap (Claude-Aware)#
 
 This repo defines a **complete, self-rebuilding development environment**
 spanning both the **macOS host** and the **Ubuntu 24.04 VM (Parallels guest)**.
