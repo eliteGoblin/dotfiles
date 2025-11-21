@@ -6,14 +6,18 @@ set -euo pipefail
 # This script automatically detects the Ubuntu VM's current IP address (which changes
 # when you switch networks in bridge mode) and updates:
 # - ~/.ssh/config (HostName for ubuntu)
-# - /etc/hosts (ubuntu.local entry)
+# - /etc/hosts (ubuntu.my entry)
+# - Flushes DNS cache to ensure new entries take effect immediately
 
 # Configuration
 VM_NAME="Ubuntu 24.04.3 ARM64"
 SSH_CONFIG="$HOME/.ssh/config"
 HOSTS_FILE="/etc/hosts"
 SSH_HOST_ENTRY="ubuntu"
-HOSTS_ENTRIES=("ubuntu.local" "fsai.local")  # Hostnames to update in /etc/hosts
+# NOTE: Avoid using .local hostnames – on macOS, *.local is reserved for mDNS/Bonjour
+# and bypasses /etc/hosts, so custom entries won't be used. Use a different suffix
+# (e.g. .my, .test, .lan) if you want /etc/hosts to control the mapping.
+HOSTS_ENTRIES=("ubuntu.my")  # Hostnames to update in /etc/hosts
 NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
 PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
 
@@ -176,6 +180,12 @@ update_hosts_file() {
     done
 
     print_success "✓ /etc/hosts updated"
+
+    # Flush DNS cache on macOS to ensure new entries are used
+    print_info "Flushing DNS cache..."
+    sudo dscacheutil -flushcache 2>/dev/null || true
+    sudo killall -HUP mDNSResponder 2>/dev/null || true
+    print_success "✓ DNS cache flushed"
 }
 
 # Status command
@@ -258,8 +268,27 @@ cmd_sync() {
     echo
     print_success "=== Sync Complete ==="
     print_info "VM IP: $vm_ip"
+    echo
+
+    # Verify with ping test
+    print_info "Verifying /etc/hosts is working..."
+    for hostname in "${HOSTS_ENTRIES[@]}"; do
+        if ping -c 1 -W 1 "$hostname" >/dev/null 2>&1; then
+            local resolved_ip
+            resolved_ip=$(ping -c 1 "$hostname" 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+            if [[ "$resolved_ip" == "$vm_ip" ]]; then
+                print_success "✓ $hostname resolves to $resolved_ip (correct)"
+            else
+                print_warning "⚠ $hostname resolves to $resolved_ip (expected $vm_ip)"
+            fi
+        else
+            print_warning "✗ Cannot ping $hostname"
+        fi
+    done
+
+    echo
     print_info "You can now SSH with: ssh ubuntu"
-    print_info "Or use hostname: ssh parallels@ubuntu.local"
+    print_info "Or use hostname: ssh parallels@ubuntu.my"
     echo
 }
 
@@ -282,10 +311,13 @@ DESCRIPTION:
 
     This script automatically detects the VM's current IP and updates:
     - ~/.ssh/config (HostName for 'ubuntu' entry)
-    - /etc/hosts (ubuntu.local and fsai.local entries)
+    - /etc/hosts (ubuntu.my entry)
 
-    This allows you to always use 'ssh ubuntu' or 'ssh parallels@ubuntu.local'
+    This allows you to always use 'ssh ubuntu' or 'ssh parallels@ubuntu.my'
     regardless of which network you're connected to.
+
+    Note: We use .my instead of .local because macOS reserves .local for
+    mDNS/Bonjour, which bypasses /etc/hosts entries.
 
 AUTO-RECOVERY:
     If the VM is running but has no IPv4 address (common after network
@@ -322,11 +354,13 @@ NETWORK SCENARIOS:
 
 FILES MODIFIED:
     ~/.ssh/config       - Updates HostName for 'Host ubuntu' entry
-    /etc/hosts          - Updates IP for 'ubuntu.local' entry
+    /etc/hosts          - Updates IP for 'ubuntu.my' entry
 
     Backups created:
     ~/.ssh/config.bak
     /etc/hosts.bak
+
+    DNS cache flushed after updates to ensure immediate effect
 
 REQUIREMENTS:
     - Ubuntu VM running in bridge network mode
