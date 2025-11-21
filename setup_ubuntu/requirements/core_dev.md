@@ -140,7 +140,7 @@ psql --version
 ## Productivity Tools (Ubuntu Only)
 ```bash
 # Core CLI tools
-sudo apt install -y ripgrep fd-find bat tree htop curl jq make build-essential autossh
+sudo apt install -y ripgrep fd-find bat tree htop curl jq make build-essential autossh silversearcher-ag
 
 # Modern CLI tools (via snap for auto-updates)
 sudo snap install glow gh
@@ -159,6 +159,20 @@ sudo apt install eza
 # FZF (fuzzy finder) - install via git for latest version
 git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/install
+```
+
+**Search Tool Comparison:**
+- **ripgrep** (`rg`) - Fast recursive grep, respects .gitignore, best for code search
+- **silversearcher-ag** (`ag`) - Fast code search tool, similar to ripgrep, popular alternative
+- **fd-find** (`fdfind`) - Fast file finder, modern replacement for `find`
+- **fzf** - Interactive fuzzy finder for files, commands, history
+
+**Verification:**
+```bash
+rg --version       # ripgrep
+ag --version       # silversearcher-ag
+fdfind --version   # fd-find
+fzf --version      # fzf
 ```
 
 ## Additional Recommendations (Ubuntu Only)
