@@ -272,6 +272,7 @@ cmd_sync() {
 
     # Verify with ping test
     print_info "Verifying /etc/hosts is working..."
+    local verification_failed=false
     for hostname in "${HOSTS_ENTRIES[@]}"; do
         if ping -c 1 -W 1 "$hostname" >/dev/null 2>&1; then
             local resolved_ip
@@ -279,12 +280,21 @@ cmd_sync() {
             if [[ "$resolved_ip" == "$vm_ip" ]]; then
                 print_success "✓ $hostname resolves to $resolved_ip (correct)"
             else
-                print_warning "⚠ $hostname resolves to $resolved_ip (expected $vm_ip)"
+                print_error "✗ $hostname resolves to $resolved_ip (expected $vm_ip)"
+                print_error "DNS is not using /etc/hosts entry. Try flushing DNS cache manually."
+                verification_failed=true
             fi
         else
-            print_warning "✗ Cannot ping $hostname"
+            print_error "✗ Cannot ping $hostname"
+            verification_failed=true
         fi
     done
+
+    if $verification_failed; then
+        echo
+        print_error "Verification failed - hostname resolution not working correctly"
+        exit 1
+    fi
 
     echo
     print_info "You can now SSH with: ssh ubuntu"
