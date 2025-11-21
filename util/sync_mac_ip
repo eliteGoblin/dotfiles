@@ -6,7 +6,7 @@ set -euo pipefail
 # This script automatically detects the Ubuntu VM's current IP address (which changes
 # when you switch networks in bridge mode) and updates:
 # - ~/.ssh/config (HostName for ubuntu)
-# - /etc/hosts (ubuntu.my entry)
+# - /etc/hosts (myubuntu entry)
 # - Flushes DNS cache to ensure new entries take effect immediately
 
 # Configuration
@@ -15,9 +15,9 @@ SSH_CONFIG="$HOME/.ssh/config"
 HOSTS_FILE="/etc/hosts"
 SSH_HOST_ENTRY="ubuntu"
 # NOTE: Avoid using .local hostnames – on macOS, *.local is reserved for mDNS/Bonjour
-# and bypasses /etc/hosts, so custom entries won't be used. Use a different suffix
-# (e.g. .my, .test, .lan) if you want /etc/hosts to control the mapping.
-HOSTS_ENTRIES=("ubuntu.my")  # Hostnames to update in /etc/hosts
+# and bypasses /etc/hosts. Also avoid real TLDs like .my (can conflict with registered domains).
+# Using simple hostnames without TLD suffix (like 'myubuntu') ensures /etc/hosts is always checked first.
+HOSTS_ENTRIES=("myubuntu")  # Hostnames to update in /etc/hosts
 NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
 PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
 
@@ -288,7 +288,7 @@ cmd_sync() {
 
     echo
     print_info "You can now SSH with: ssh ubuntu"
-    print_info "Or use hostname: ssh parallels@ubuntu.my"
+    print_info "Or use hostname: ssh parallels@myubuntu"
     echo
 }
 
@@ -311,13 +311,13 @@ DESCRIPTION:
 
     This script automatically detects the VM's current IP and updates:
     - ~/.ssh/config (HostName for 'ubuntu' entry)
-    - /etc/hosts (ubuntu.my entry)
+    - /etc/hosts (myubuntu entry)
 
-    This allows you to always use 'ssh ubuntu' or 'ssh parallels@ubuntu.my'
+    This allows you to always use 'ssh ubuntu' or 'ssh parallels@myubuntu'
     regardless of which network you're connected to.
 
-    Note: We use .my instead of .local because macOS reserves .local for
-    mDNS/Bonjour, which bypasses /etc/hosts entries.
+    Note: We use a simple hostname without TLD suffix to avoid conflicts with
+    mDNS/Bonjour (.local) or real registered domains (.my, .dev, etc.).
 
 AUTO-RECOVERY:
     If the VM is running but has no IPv4 address (common after network
@@ -354,7 +354,7 @@ NETWORK SCENARIOS:
 
 FILES MODIFIED:
     ~/.ssh/config       - Updates HostName for 'Host ubuntu' entry
-    /etc/hosts          - Updates IP for 'ubuntu.my' entry
+    /etc/hosts          - Updates IP for 'myubuntu' entry
 
     Backups created:
     ~/.ssh/config.bak
