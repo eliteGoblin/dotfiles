@@ -134,6 +134,7 @@ start_chrome() {
     # Start Chrome in background
     "$CHROME_BIN" \
         --remote-debugging-port="$CHROME_PORT" \
+        --remote-allow-origins='*' \
         --user-data-dir="$CHROME_PROFILE" \
         --no-first-run \
         --no-default-browser-check \

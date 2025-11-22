@@ -1,0 +1,761 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# dev_sync - Development environment synchronization for macOS ↔ Ubuntu VM
+#
+# This script provides comprehensive dev environment setup and health monitoring:
+#
+# IP Synchronization (bidirectional):
+#   - Detects macOS and Ubuntu VM IP addresses (which change in bridge mode)
+#   - Updates configs on BOTH machines automatically
+#
+# On macOS:
+#   - ~/.ssh/config (HostName for ubuntu)
+#   - /etc/hosts (myubuntu → Ubuntu VM IP)
+#
+# On Ubuntu (via SSH):
+#   - /etc/hosts (mymac → macOS host IP)
+#   - ~/.claude.json MCP config (Chrome DevTools URL)
+#
+# Chrome MCP Management:
+#   - Auto-starts Chrome MCP if not running
+#   - Verifies connectivity from Ubuntu
+#   - Auto-restarts if bound to wrong IP after network change
+#
+# npm Authentication Monitoring:
+#   - Checks npm authentication on both machines
+#   - Verifies registry configuration
+#   - Warns if login expired or misconfigured
+
+# Configuration
+VM_NAME="Ubuntu 24.04.3 ARM64"
+SSH_CONFIG="$HOME/.ssh/config"
+HOSTS_FILE="/etc/hosts"
+SSH_HOST_ENTRY="ubuntu"
+# NOTE: Avoid using .local hostnames – on macOS, *.local is reserved for mDNS/Bonjour
+# and bypasses /etc/hosts. Also avoid real TLDs like .my (can conflict with registered domains).
+
+# MCP Configuration
+UBUNTU_MCP_CONFIG="/home/parallels/.claude.json"  # Root-level mcpServers in ~/.claude.json
+# Using simple hostnames without TLD suffix (like 'myubuntu') ensures /etc/hosts is always checked first.
+HOSTS_ENTRIES=("myubuntu")  # Hostnames to update in /etc/hosts (on macOS)
+UBUNTU_HOSTNAME_FOR_MAC="mymac"  # Hostname Ubuntu uses to reach macOS
+NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
+PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
+UBUNTU_MCP_CONFIG="/home/parallels/.claude.json"  # Ubuntu MCP config file
+MCP_PORT="9223"  # Chrome DevTools port exposed via socat
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Utility functions
+print_error() {
+    echo -e "${RED}ERROR: $*${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}$*${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}WARNING: $*${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}$*${NC}"
+}
+
+# Get VM IP address with auto-recovery
+get_vm_ip() {
+    local vm_ip
+    local retry_count=0
+    local max_retries=1
+
+    # Check if VM is running
+    if ! "$PRLCTL" list | grep -q "$VM_NAME"; then
+        print_error "VM '$VM_NAME' is not running"
+        exit 1
+    fi
+
+    while [[ $retry_count -le $max_retries ]]; do
+        # Get IP from VM network interface (macOS grep doesn't support -P)
+        vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
+
+        if [[ -n "$vm_ip" ]]; then
+            # Successfully got IP
+            echo "$vm_ip"
+            return 0
+        fi
+
+        # No IP detected
+        if [[ $retry_count -eq 0 ]]; then
+            # First attempt failed, try auto-recovery
+            print_warning "VM is running but has no IPv4 address"
+            print_info "Attempting auto-recovery: restarting NetworkManager in VM..."
+
+            if "$PRLCTL" exec "$VM_NAME" sudo systemctl restart NetworkManager 2>/dev/null; then
+                print_info "Waiting for network to recover..."
+                sleep 6
+                ((retry_count++))
+            else
+                print_error "Failed to restart NetworkManager"
+                exit 1
+            fi
+        else
+            # Retry failed
+            print_error "Auto-recovery failed. VM still has no IPv4 address."
+            print_info "This usually happens when:"
+            print_info "  - You recently disconnected/reconnected to WiFi or hotspot"
+            print_info "  - The VM's DHCP client isn't working properly"
+            print_info ""
+            print_info "Try manually: $PRLCTL exec \"$VM_NAME\" sudo systemctl restart NetworkManager"
+            exit 1
+        fi
+    done
+}
+
+# Get current IP from SSH config
+get_ssh_config_ip() {
+    if [[ ! -f "$SSH_CONFIG" ]]; then
+        echo ""
+        return
+    fi
+
+    # Extract HostName from ubuntu section
+    awk '
+        /^Host ubuntu$/ { found=1; next }
+        found && /^Host / { exit }
+        found && /^  HostName / { print $2; exit }
+    ' "$SSH_CONFIG"
+}
+
+# Get current IP from /etc/hosts for a specific hostname
+get_hosts_ip() {
+    local hostname="${1:-${HOSTS_ENTRIES[0]}}"
+    if [[ ! -f "$HOSTS_FILE" ]]; then
+        echo ""
+        return
+    fi
+
+    # Extract IP for the hostname (only first match)
+    grep -E "^[0-9.]+\s+$hostname" "$HOSTS_FILE" 2>/dev/null | awk 'NR==1 {print $1}' || echo ""
+}
+
+# Get macOS LAN IP address
+get_macos_ip() {
+    local mac_ip
+    # Try to get IP from en0 (primary network interface)
+    mac_ip=$(ipconfig getifaddr en0 2>/dev/null)
+
+    if [[ -z "$mac_ip" ]]; then
+        print_error "Could not determine macOS LAN IP on interface en0"
+        print_info "Tried: ipconfig getifaddr en0"
+        exit 1
+    fi
+
+    echo "$mac_ip"
+}
+
+# Get Ubuntu sudo password
+get_ubuntu_sudo_password() {
+    # First try environment variable
+    if [[ -n "${UBUNTU_SUDO_PASSWORD:-}" ]]; then
+        echo "$UBUNTU_SUDO_PASSWORD"
+        return 0
+    fi
+
+    # Fallback to creds file
+    local creds_file="$HOME/.creds/local.sh"
+    if [[ -f "$creds_file" ]]; then
+        # Source the file and extract password
+        source "$creds_file"
+        if [[ -n "${UBUNTU_SUDO_PASSWORD:-}" ]]; then
+            echo "$UBUNTU_SUDO_PASSWORD"
+            return 0
+        fi
+    fi
+
+    print_error "UBUNTU_SUDO_PASSWORD not found"
+    print_info "Set it in your environment or in ~/.creds/local.sh"
+    exit 1
+}
+
+# Update Ubuntu's /etc/hosts with macOS IP
+update_ubuntu_hosts_file() {
+    local mac_ip=$1
+
+    print_info "Updating Ubuntu's /etc/hosts with macOS IP..."
+
+    # Get sudo password
+    local sudo_pass
+    sudo_pass=$(get_ubuntu_sudo_password)
+
+    # Remove old entries for mymac and add new one (via SSH)
+    local update_cmd="echo '$sudo_pass' | sudo -S sed -i '/^[0-9.][0-9.]*[[:space:]][[:space:]]*${UBUNTU_HOSTNAME_FOR_MAC}$/d' /etc/hosts && echo '$mac_ip $UBUNTU_HOSTNAME_FOR_MAC' | sudo -S tee -a /etc/hosts >/dev/null"
+
+    if ssh "$SSH_HOST_ENTRY" "$update_cmd" 2>/dev/null; then
+        print_success "✓ Ubuntu's /etc/hosts updated with $UBUNTU_HOSTNAME_FOR_MAC → $mac_ip"
+    else
+        print_error "Failed to update Ubuntu's /etc/hosts"
+        print_info "Make sure SSH access to 'ubuntu' works and UBUNTU_SUDO_PASSWORD is correct"
+        exit 1
+    fi
+}
+
+# Update Ubuntu's MCP config (root-level in ~/.claude.json) with new macOS IP
+update_ubuntu_mcp_config() {
+    local mac_ip=$1
+
+    print_info "Updating Ubuntu's MCP config with macOS IP..."
+
+    # Check if root-level mcpServers exists
+    if ! ssh -q "$SSH_HOST_ENTRY" "jq -e '.mcpServers' $UBUNTU_MCP_CONFIG" >/dev/null 2>&1; then
+        print_info "Creating root-level mcpServers in ~/.claude.json..."
+        # Add mcpServers to root level
+        local add_cmd="jq '. + {\"mcpServers\": {\"chrome-devtools\": {\"type\": \"stdio\", \"command\": \"/home/parallels/.local/bin/npx-mcp\", \"args\": [\"chrome-devtools-mcp@latest\", \"--browserUrl=http://$mac_ip:$MCP_PORT\"], \"env\": {}}}}' $UBUNTU_MCP_CONFIG > ${UBUNTU_MCP_CONFIG}.tmp && mv ${UBUNTU_MCP_CONFIG}.tmp $UBUNTU_MCP_CONFIG"
+
+        if ssh -q "$SSH_HOST_ENTRY" "$add_cmd" 2>/dev/null; then
+            print_success "✓ Created MCP config with browserUrl=http://$mac_ip:$MCP_PORT"
+        else
+            print_error "Failed to create MCP config"
+            exit 1
+        fi
+        return 0
+    fi
+
+    # Update browserUrl in existing mcpServers
+    local update_cmd="jq '.mcpServers.\"chrome-devtools\".args = [.mcpServers.\"chrome-devtools\".args[] | if startswith(\"--browserUrl=\") then \"--browserUrl=http://$mac_ip:$MCP_PORT\" else . end]' $UBUNTU_MCP_CONFIG > ${UBUNTU_MCP_CONFIG}.tmp && mv ${UBUNTU_MCP_CONFIG}.tmp $UBUNTU_MCP_CONFIG"
+
+    if ssh -q "$SSH_HOST_ENTRY" "$update_cmd" 2>/dev/null; then
+        print_success "✓ Ubuntu's MCP config updated with browserUrl=http://$mac_ip:$MCP_PORT"
+    else
+        print_error "Failed to update Ubuntu's MCP config"
+        print_info "Make sure jq is installed on Ubuntu: sudo apt install jq"
+        exit 1
+    fi
+}
+
+# Get current browserUrl IP from Ubuntu's MCP config
+get_mcp_config_ip() {
+    # Extract IP from browserUrl in root-level mcpServers
+    ssh -q "$SSH_HOST_ENTRY" "jq -r '.mcpServers.\"chrome-devtools\".args[]? | select(startswith(\"--browserUrl=\")) | sub(\"--browserUrl=http://\"; \"\") | sub(\":.*\"; \"\")' $UBUNTU_MCP_CONFIG 2>/dev/null" 2>/dev/null || echo ""
+}
+
+# npm authentication check functions
+NPM_ARTIFACTORY_REGISTRY="https://fsaiartifact.jfrog.io/artifactory/api/npm/fsai-private-npm-AUS-virtual/"
+
+get_macos_npm_whoami() {
+    npm whoami --registry="$NPM_ARTIFACTORY_REGISTRY" 2>/dev/null || echo ""
+}
+
+get_ubuntu_npm_whoami() {
+    ssh -q "$SSH_HOST_ENTRY" "bash -i -c 'npm whoami --registry=\"$NPM_ARTIFACTORY_REGISTRY\" 2>/dev/null'" 2>/dev/null | tr -d '\r\n' || echo ""
+}
+
+get_macos_npm_registry() {
+    npm config get registry 2>/dev/null || echo ""
+}
+
+get_ubuntu_npm_registry() {
+    ssh -q "$SSH_HOST_ENTRY" "bash -i -c 'npm config get registry 2>/dev/null'" 2>/dev/null | tr -d '\r\n' || echo ""
+}
+
+# Ensure Chrome MCP is running on macOS
+ensure_chrome_mcp_running() {
+    if ! run_chrome_mcp status >/dev/null 2>&1; then
+        print_warning "Chrome MCP is not running on macOS"
+        print_info "Starting Chrome MCP..."
+
+        if run_chrome_mcp start >/dev/null 2>&1; then
+            sleep 2  # Give it time to start
+            print_success "✓ Chrome MCP started successfully"
+        else
+            print_error "Failed to start Chrome MCP"
+            print_info "Try manually: run_chrome_mcp start"
+            exit 1
+        fi
+    fi
+}
+
+# Verify Chrome MCP is accessible from Ubuntu
+verify_chrome_mcp_from_ubuntu() {
+    local mac_ip=$1
+
+    print_info "Verifying Chrome MCP accessibility from Ubuntu..."
+
+    # First check if run_chrome_mcp is running on macOS
+    if ! run_chrome_mcp status >/dev/null 2>&1; then
+        print_error "Chrome MCP is not running on macOS"
+        print_info "Start it with: run_chrome_mcp start"
+        exit 1
+    fi
+
+    # Test connection from Ubuntu using IP (Chrome DevTools doesn't accept custom hostnames)
+    local chrome_version
+    chrome_version=$(ssh "$SSH_HOST_ENTRY" "curl -s -m 5 http://${mac_ip}:${MCP_PORT}/json/version 2>/dev/null" | grep -o '"Browser":"[^"]*"' | cut -d'"' -f4)
+
+    if [[ -n "$chrome_version" ]]; then
+        print_success "✓ Ubuntu can reach Chrome MCP at http://$mac_ip:$MCP_PORT ($chrome_version)"
+    else
+        print_warning "✗ Ubuntu cannot reach Chrome MCP at http://$mac_ip:$MCP_PORT"
+        print_info "Chrome MCP may be bound to old IP after network change"
+        print_info "Restarting Chrome MCP to bind to new IP..."
+
+        run_chrome_mcp stop >/dev/null 2>&1
+        sleep 1
+        run_chrome_mcp start >/dev/null 2>&1
+        sleep 2
+
+        # Try again after restart
+        chrome_version=$(ssh "$SSH_HOST_ENTRY" "curl -s -m 5 http://${mac_ip}:${MCP_PORT}/json/version 2>/dev/null" | grep -o '"Browser":"[^"]*"' | cut -d'"' -f4)
+
+        if [[ -n "$chrome_version" ]]; then
+            print_success "✓ Chrome MCP restarted and now accessible at http://$mac_ip:$MCP_PORT ($chrome_version)"
+        else
+            print_error "✗ Still cannot reach Chrome MCP after restart"
+            print_info "Debug steps:"
+            print_info "  1. Check Chrome MCP status: run_chrome_mcp status"
+            print_info "  2. Test from Ubuntu: ssh ubuntu 'curl http://$mac_ip:$MCP_PORT/json/version'"
+            print_info "  3. Verify macOS firewall allows incoming connections"
+            exit 1
+        fi
+    fi
+}
+
+# Update SSH config
+update_ssh_config() {
+    local new_ip=$1
+    local current_ip
+    current_ip=$(get_ssh_config_ip)
+
+    if [[ -z "$current_ip" ]]; then
+        print_error "Could not find 'Host ubuntu' entry in $SSH_CONFIG"
+        exit 1
+    fi
+
+    if [[ "$current_ip" == "$new_ip" ]]; then
+        print_info "SSH config already up to date ($new_ip)"
+        return 0
+    fi
+
+    print_info "Updating SSH config: $current_ip → $new_ip"
+
+    # Create backup
+    cp "$SSH_CONFIG" "$SSH_CONFIG.bak"
+
+    # Update the IP using sed
+    sed -i '' "/^Host ubuntu$/,/^Host / s/^  HostName .*/  HostName $new_ip/" "$SSH_CONFIG"
+
+    # Remove old host key
+    ssh-keygen -R "$current_ip" 2>/dev/null || true
+    ssh-keygen -R "$SSH_HOST_ENTRY" 2>/dev/null || true
+
+    print_success "✓ SSH config updated"
+}
+
+# Update /etc/hosts
+update_hosts_file() {
+    local new_ip=$1
+
+    print_info "Updating /etc/hosts for VM hostnames..."
+
+    # Create backup
+    sudo cp "$HOSTS_FILE" "$HOSTS_FILE.bak"
+
+    # Update each hostname
+    for hostname in "${HOSTS_ENTRIES[@]}"; do
+        local current_ip
+        current_ip=$(get_hosts_ip "$hostname")
+
+        # Remove ALL old entries for this hostname (in case of duplicates)
+        sudo sed -i '' "/^[0-9.][0-9.]*[[:space:]][[:space:]]*${hostname}$/d" "$HOSTS_FILE"
+
+        # Add new entry
+        echo "$new_ip $hostname" | sudo tee -a "$HOSTS_FILE" >/dev/null
+
+        if [[ -n "$current_ip" ]]; then
+            print_info "  $hostname: $current_ip → $new_ip"
+        else
+            print_info "  $hostname: <none> → $new_ip"
+        fi
+    done
+
+    print_success "✓ /etc/hosts updated"
+
+    # Flush DNS cache on macOS to ensure new entries are used
+    print_info "Flushing DNS cache..."
+    sudo dscacheutil -flushcache 2>/dev/null || true
+    sudo killall -HUP mDNSResponder 2>/dev/null || true
+    print_success "✓ DNS cache flushed"
+}
+
+# Status command
+cmd_status() {
+    echo
+    echo "=== IP Sync Status (Bidirectional) ==="
+    echo
+
+    # Get VM IP
+    local vm_ip
+    if ! vm_ip=$(get_vm_ip 2>&1); then
+        print_error "Cannot get VM IP"
+        echo "$vm_ip"
+        exit 1
+    fi
+
+    # Get macOS IP
+    local mac_ip
+    mac_ip=$(get_macos_ip)
+
+    # Get all configured IPs
+    local ssh_ip
+    ssh_ip=$(get_ssh_config_ip)
+
+    local macos_hosts_ip
+    macos_hosts_ip=$(get_hosts_ip "myubuntu")
+
+    local ubuntu_hosts_ip
+    ubuntu_hosts_ip=$(ssh -q "$SSH_HOST_ENTRY" "grep -E '^[0-9.]+\s+$UBUNTU_HOSTNAME_FOR_MAC' /etc/hosts 2>/dev/null | awk 'NR==1 {print \$1}'" 2>/dev/null | tr -d '\r\n' || echo "")
+
+    local mcp_config_ip
+    mcp_config_ip=$(get_mcp_config_ip 2>/dev/null | tr -d '\r\n')
+
+    # Check npm authentication
+    local macos_npm_whoami
+    macos_npm_whoami=$(get_macos_npm_whoami)
+
+    local ubuntu_npm_whoami
+    ubuntu_npm_whoami=$(get_ubuntu_npm_whoami)
+
+    local macos_npm_registry
+    macos_npm_registry=$(get_macos_npm_registry)
+
+    local ubuntu_npm_registry
+    ubuntu_npm_registry=$(get_ubuntu_npm_registry)
+
+    # Check Chrome MCP
+    local chrome_status="❌ Not running"
+    if run_chrome_mcp status >/dev/null 2>&1; then
+        # Test if Ubuntu can reach Chrome MCP
+        if ssh -q "$SSH_HOST_ENTRY" "curl -s -m 3 http://${mac_ip}:${MCP_PORT}/json/version >/dev/null 2>&1" >/dev/null 2>&1; then
+            chrome_status="✅ Accessible"
+        else
+            chrome_status="❌ Not accessible"
+        fi
+    fi
+
+    # Print table header
+    echo "┌─────────────────────────────┬─────────────────┬─────────────────┐"
+    echo "│ Configuration               │ Current IP      │ Status          │"
+    echo "├─────────────────────────────┼─────────────────┼─────────────────┤"
+
+    # macOS section
+    printf "│ %-27s │ %-15s │ %-15s │\n" "macOS Actual" "$mac_ip" "-"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Ubuntu Actual" "$vm_ip" "-"
+    echo "├─────────────────────────────┼─────────────────┼─────────────────┤"
+
+    # macOS → Ubuntu
+    local ssh_status="❌ Out of sync"
+    [[ "$ssh_ip" == "$vm_ip" ]] && ssh_status="✅ In sync"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "macOS SSH config" "${ssh_ip:-<none>}" "$ssh_status"
+
+    local hosts_status="❌ Out of sync"
+    [[ "$macos_hosts_ip" == "$vm_ip" ]] && hosts_status="✅ In sync"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "macOS /etc/hosts" "${macos_hosts_ip:-<none>}" "$hosts_status"
+
+    echo "├─────────────────────────────┼─────────────────┼─────────────────┤"
+
+    # Ubuntu → macOS
+    local ubuntu_hosts_status="❌ Out of sync"
+    [[ "$ubuntu_hosts_ip" == "$mac_ip" ]] && ubuntu_hosts_status="✅ In sync"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Ubuntu /etc/hosts" "${ubuntu_hosts_ip:-<none>}" "$ubuntu_hosts_status"
+
+    local mcp_status="❌ Out of sync"
+    [[ "$mcp_config_ip" == "$mac_ip" ]] && mcp_status="✅ In sync"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Ubuntu MCP config" "${mcp_config_ip:-<none>}" "$mcp_status"
+
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Chrome MCP" "$mac_ip:$MCP_PORT" "$chrome_status"
+
+    echo "├─────────────────────────────┼─────────────────┼─────────────────┤"
+
+    # npm authentication status
+    local macos_npm_auth_status="❌ Not logged in"
+    if [[ -n "$macos_npm_whoami" ]]; then
+        macos_npm_auth_status="✅ Authenticated"
+    fi
+    local macos_npm_display="${macos_npm_whoami:-<not logged in>}"
+    [[ "${#macos_npm_display}" -gt 15 ]] && macos_npm_display="${macos_npm_display:0:12}..."
+    printf "│ %-27s │ %-15s │ %-15s │\n" "macOS npm auth" "$macos_npm_display" "$macos_npm_auth_status"
+
+    local macos_registry_status="❌ Wrong registry"
+    if [[ "$macos_npm_registry" == *"fsai-private-npm"* ]]; then
+        macos_registry_status="✅ Configured"
+    fi
+    local macos_registry_display="${macos_npm_registry:-<none>}"
+    [[ "${#macos_registry_display}" -gt 15 ]] && macos_registry_display="...${macos_registry_display: -12}"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "macOS npm registry" "$macos_registry_display" "$macos_registry_status"
+
+    local ubuntu_npm_auth_status="❌ Not logged in"
+    if [[ -n "$ubuntu_npm_whoami" ]]; then
+        ubuntu_npm_auth_status="✅ Authenticated"
+    fi
+    local ubuntu_npm_display="${ubuntu_npm_whoami:-<not logged in>}"
+    [[ "${#ubuntu_npm_display}" -gt 15 ]] && ubuntu_npm_display="${ubuntu_npm_display:0:12}..."
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Ubuntu npm auth" "$ubuntu_npm_display" "$ubuntu_npm_auth_status"
+
+    local ubuntu_registry_status="❌ Wrong registry"
+    if [[ "$ubuntu_npm_registry" == *"fsai-private-npm"* ]]; then
+        ubuntu_registry_status="✅ Configured"
+    fi
+    local ubuntu_registry_display="${ubuntu_npm_registry:-<none>}"
+    [[ "${#ubuntu_registry_display}" -gt 15 ]] && ubuntu_registry_display="...${ubuntu_registry_display: -12}"
+    printf "│ %-27s │ %-15s │ %-15s │\n" "Ubuntu npm registry" "$ubuntu_registry_display" "$ubuntu_registry_status"
+
+    echo "└─────────────────────────────┴─────────────────┴─────────────────┘"
+    echo
+
+    # Overall status
+    local all_in_sync=true
+    [[ "$ssh_ip" != "$vm_ip" ]] && all_in_sync=false
+    [[ "$macos_hosts_ip" != "$vm_ip" ]] && all_in_sync=false
+    [[ "$ubuntu_hosts_ip" != "$mac_ip" ]] && all_in_sync=false
+    [[ "$mcp_config_ip" != "$mac_ip" ]] && all_in_sync=false
+    [[ "$chrome_status" != "✅"* ]] && all_in_sync=false
+
+    # Check npm authentication (warnings only, don't block overall status)
+    local npm_warnings=false
+    if [[ -z "$macos_npm_whoami" ]]; then
+        npm_warnings=true
+    fi
+    if [[ -z "$ubuntu_npm_whoami" ]]; then
+        npm_warnings=true
+    fi
+
+    if $all_in_sync; then
+        print_success "Overall: ✓ All systems in sync"
+        if $npm_warnings; then
+            echo
+            print_warning "npm authentication warnings detected:"
+            [[ -z "$macos_npm_whoami" ]] && print_info "  - macOS: Run 'npm login --registry=$NPM_ARTIFACTORY_REGISTRY'"
+            [[ -z "$ubuntu_npm_whoami" ]] && print_info "  - Ubuntu: SSH to ubuntu and run 'npm login --registry=$NPM_ARTIFACTORY_REGISTRY'"
+        fi
+        return 0
+    else
+        print_warning "Overall: ✗ Out of sync - run 'dev_sync sync' to fix"
+        if $npm_warnings; then
+            echo
+            print_warning "Also, npm authentication issues detected:"
+            [[ -z "$macos_npm_whoami" ]] && print_info "  - macOS: Run 'npm login --registry=$NPM_ARTIFACTORY_REGISTRY'"
+            [[ -z "$ubuntu_npm_whoami" ]] && print_info "  - Ubuntu: SSH to ubuntu and run 'npm login --registry=$NPM_ARTIFACTORY_REGISTRY'"
+        fi
+        return 1
+    fi
+}
+
+# Sync command
+cmd_sync() {
+    echo
+    print_info "=== Syncing IPs (Bidirectional) ==="
+    echo
+
+    # Get VM IP
+    local vm_ip
+    vm_ip=$(get_vm_ip)
+
+    # Get macOS IP
+    local mac_ip
+    mac_ip=$(get_macos_ip)
+
+    print_info "Detected VM IP: $vm_ip"
+    print_info "Detected macOS IP: $mac_ip"
+    echo
+
+    # Ensure Chrome MCP is running (required for MCP connectivity)
+    ensure_chrome_mcp_running
+    echo
+
+    # === Part 1: Update macOS side ===
+    print_info "=== Updating macOS configuration ==="
+
+    # Update SSH config (no sudo needed)
+    update_ssh_config "$vm_ip"
+
+    # Update /etc/hosts (will prompt for sudo password if needed)
+    update_hosts_file "$vm_ip"
+
+    echo
+
+    # === Part 2: Update Ubuntu side ===
+    print_info "=== Updating Ubuntu configuration ==="
+
+    # Update Ubuntu's /etc/hosts with macOS IP
+    update_ubuntu_hosts_file "$mac_ip"
+
+    # Update Ubuntu's MCP config with macOS IP
+    update_ubuntu_mcp_config "$mac_ip"
+
+    echo
+
+    # === Part 3: Verification ===
+    print_success "=== Configuration Complete ==="
+    print_info "macOS IP: $mac_ip"
+    print_info "Ubuntu IP: $vm_ip"
+    echo
+
+    # Verify macOS → Ubuntu
+    print_info "Verifying macOS → Ubuntu connectivity..."
+    local verification_failed=false
+    for hostname in "${HOSTS_ENTRIES[@]}"; do
+        if ping -c 1 -W 1 "$hostname" >/dev/null 2>&1; then
+            local resolved_ip
+            resolved_ip=$(ping -c 1 "$hostname" 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+            if [[ "$resolved_ip" == "$vm_ip" ]]; then
+                print_success "✓ macOS can reach $hostname ($resolved_ip)"
+            else
+                print_error "✗ $hostname resolves to $resolved_ip (expected $vm_ip)"
+                verification_failed=true
+            fi
+        else
+            print_error "✗ Cannot ping $hostname from macOS"
+            verification_failed=true
+        fi
+    done
+
+    # Verify Ubuntu → macOS (Chrome MCP)
+    verify_chrome_mcp_from_ubuntu "$mac_ip"
+
+    if $verification_failed; then
+        echo
+        print_error "Verification failed - hostname resolution not working correctly"
+        exit 1
+    fi
+
+    echo
+    print_success "=== All Systems Ready ==="
+    print_info "macOS → Ubuntu: ssh ubuntu  OR  ssh parallels@myubuntu"
+    print_info "Ubuntu → macOS: Chrome MCP at http://$UBUNTU_HOSTNAME_FOR_MAC:9223"
+    echo
+}
+
+# Help command
+cmd_help() {
+    cat <<'EOF'
+dev_sync - Development environment synchronization for macOS ↔ Ubuntu VM
+
+USAGE:
+    dev_sync {status|sync|help}
+
+COMMANDS:
+    status      Show comprehensive dev environment health status
+    sync        One-command setup: sync IPs, ensure MCP running, verify connectivity
+    help        Show this help message
+
+DESCRIPTION:
+    When using Ubuntu VM in bridge mode, both macOS and Ubuntu IPs change
+    whenever you switch networks (home WiFi → phone hotspot → office WiFi, etc.).
+
+    This script automatically detects both IPs and updates configuration on BOTH machines:
+
+    On macOS:
+    - ~/.ssh/config (HostName for 'ubuntu' entry)
+    - /etc/hosts (myubuntu → Ubuntu VM IP)
+
+    On Ubuntu (via SSH):
+    - /etc/hosts (mymac → macOS host IP)
+
+    This enables:
+    - macOS can SSH to Ubuntu: 'ssh ubuntu' or 'ssh parallels@myubuntu'
+    - Ubuntu can access macOS services: 'http://mymac:9223' (Chrome MCP)
+
+    Note: We use simple hostnames without TLD suffix to avoid conflicts with
+    mDNS/Bonjour (.local) or real registered domains (.my, .dev, etc.).
+
+AUTO-RECOVERY:
+    If the VM is running but has no IPv4 address (common after network
+    disconnect/reconnect), the script will automatically:
+    - Restart NetworkManager in the VM
+    - Wait for network to recover
+    - Retry getting the IP address
+
+    This handles cases like reconnecting to phone hotspot or WiFi.
+
+WHEN TO USE:
+    Run 'dev_sync sync' as your daily dev environment setup command:
+    - After switching networks (WiFi → hotspot, home → office, etc.)
+    - At start of day (ensures everything is ready)
+    - When SSH to VM fails
+    - When Chrome MCP connection fails from Ubuntu
+    - After restarting the VM or your Mac
+
+EXAMPLES:
+    # Check comprehensive dev environment status
+    dev_sync status
+
+    # One-command dev environment setup (run daily)
+    dev_sync sync
+
+    # Now everything works:
+    ssh ubuntu                      # From macOS
+    curl http://mymac:9223          # From Ubuntu (Chrome MCP)
+
+NETWORK SCENARIOS:
+    Home WiFi:      macOS 192.168.4.2,  Ubuntu 192.168.4.3
+    Phone Hotspot:  macOS 172.20.10.2,  Ubuntu 172.20.10.3
+    Office WiFi:    macOS 10.x.x.2,     Ubuntu 10.x.x.3
+
+    After running 'sync_mac_ip sync', everything works regardless of network!
+
+FILES MODIFIED:
+    On macOS:
+    - ~/.ssh/config       - Updates HostName for 'Host ubuntu' entry
+    - /etc/hosts          - Updates IP for 'myubuntu' entry
+
+    On Ubuntu (via SSH):
+    - /etc/hosts          - Updates IP for 'mymac' entry
+
+    Backups created:
+    - ~/.ssh/config.bak
+    - /etc/hosts.bak (on both machines)
+
+    DNS cache flushed after updates to ensure immediate effect
+
+REQUIREMENTS:
+    - Ubuntu VM running in bridge network mode
+    - Parallels Tools installed (prlctl command)
+    - sudo access on macOS (for /etc/hosts updates)
+    - SSH access to Ubuntu ('ssh ubuntu' must work)
+    - UBUNTU_SUDO_PASSWORD env var (or in ~/.creds/local.sh)
+    - Chrome MCP running (run_chrome_mcp start)
+
+EOF
+}
+
+# Main
+main() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        status)
+            cmd_status
+            ;;
+        sync)
+            cmd_sync
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            print_error "Unknown command: ${cmd:-<none>}"
+            echo
+            echo "Usage: dev_sync {status|sync|help}"
+            echo
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
