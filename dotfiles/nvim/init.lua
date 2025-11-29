@@ -87,6 +87,13 @@ require("lazy").setup({
       { "<leader>ff", "<cmd>Telescope find_files<cr>", desc = "Find files" },
       { "<leader>fa", function() require("telescope.builtin").find_files({hidden=true}) end, desc = "Find all files (including hidden)" },
       { "<leader>fg", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
+      { "<leader>fG", function()
+          vim.ui.input({ prompt = "File pattern (e.g. *.md, *.lua): " }, function(pattern)
+            if pattern then
+              require("telescope.builtin").live_grep({ glob_pattern = pattern })
+            end
+          end)
+        end, desc = "Grep with file filter" },
       { "<leader>fb", "<cmd>Telescope buffers<cr>", desc = "Buffers" },
       { "<leader>fh", "<cmd>Telescope help_tags<cr>", desc = "Help tags" },
     },
