@@ -49,10 +49,56 @@
 prlctl stop "Ubuntu 24.04.3 ARM64"
 prlctl set "Ubuntu 24.04.3 ARM64" --memsize 20480 --cpus 8
 prlctl set "Ubuntu 24.04.3 ARM64" --device-set net0 --type shared
+prlctl set "Ubuntu 24.04.3 ARM64" --time-sync on  # CRITICAL: Enable time sync
 prlctl start "Ubuntu 24.04.3 ARM64"
 ```
 
 **Note**: Memory changes require VM shutdown. CPU changes are safer when VM is stopped.
+
+## Time Synchronization (REQUIRED)
+
+**Problem**: VM time drifts after suspend/resume, causing:
+- SSL certificate validation failures
+- Git commit timestamp issues
+- Authentication token expiration
+- Build cache invalidation
+
+**Solution**: Configure dual time sync (Parallels Tools + NTP)
+
+### 1. Enable Parallels Time Sync (on macOS)
+```bash
+prlctl set "Ubuntu 24.04.3 ARM64" --time-sync on
+```
+
+### 2. Configure NTP Service (on Ubuntu VM)
+```bash
+# On Ubuntu VM - enable systemd-timesyncd
+sudo timedatectl set-ntp true
+sudo systemctl enable systemd-timesyncd
+sudo systemctl start systemd-timesyncd
+
+# Verify time sync is working
+timedatectl status
+# Should show: "System clock synchronized: yes"
+#              "NTP service: active"
+
+# Check NTP server connection
+timedatectl timesync-status
+# Should show: "Server: ... (ntp.ubuntu.com)"
+```
+
+### 3. Verify Sync After Suspend/Resume
+```bash
+# On macOS - compare times
+date && ssh ubuntu date
+
+# Should be within 1-2 seconds
+```
+
+**Why Both?**
+- **Parallels time-sync**: Handles suspend/resume events
+- **NTP (systemd-timesyncd)**: Keeps time accurate during normal operation
+- **Together**: Ensures time stays synced in all scenarios
 
 ## Backup Configuration (SmartGuard)
 - **Enabled**: Yes (automatic snapshots)
@@ -60,11 +106,40 @@ prlctl start "Ubuntu 24.04.3 ARM64"
 - **Max snapshots**: 3 (automatic rotation)
 - **Location**: `~/Parallels/Ubuntu 24.04.3 ARM64.pvm/Snapshots/`
 
-**Check backup status**:
+### Manual Snapshot Management
+
+**Create snapshot after major changes:**
 ```bash
+# Create snapshot with descriptive name
+prlctl snapshot "Ubuntu 24.04.3 ARM64" \
+  --name "stable-$(date +%Y%m%d)" \
+  --description "Time sync + dev_sync + Chrome MCP configured"
+```
+
+**List all snapshots:**
+```bash
+# List snapshots with tree structure
 prlctl snapshot-list "Ubuntu 24.04.3 ARM64"
+
+# Or check snapshot directory
 ls -lh "~/Parallels/Ubuntu 24.04.3 ARM64.pvm/Snapshots/"
 ```
+
+**Delete old snapshots:**
+```bash
+# Delete specific snapshot by ID
+prlctl snapshot-delete "Ubuntu 24.04.3 ARM64" --id {snapshot-id}
+
+# Or delete by name
+prlctl snapshot-delete "Ubuntu 24.04.3 ARM64" --name "snapshot-name"
+```
+
+**When to create manual snapshots:**
+- ✅ After time sync configuration
+- ✅ After major package installations (Docker, databases, etc.)
+- ✅ Before system upgrades (Ubuntu version, kernel updates)
+- ✅ After completing dev environment setup
+- ✅ Before risky operations (system config changes)
 
 ## Notes for Claude
 - NAT mode ensures consistent IP assignments

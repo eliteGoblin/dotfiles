@@ -1,0 +1,61 @@
+#compdef backup_cli
+
+# Zsh completion script for backup_cli
+# Install: Place in a directory in your $fpath (e.g., ~/.zsh/completions/)
+# Then run: autoload -Uz compinit && compinit
+
+_backup_cli() {
+    local -a commands
+    local -a vm_names
+
+    commands=(
+        'init:Initialize backup tool (first-time setup)'
+        'push:Backup VM to Azure (incremental sync)'
+        'pull:Restore VM from Azure'
+        'status:Show differences between local and remote'
+        'list:List available backups in Azure'
+        'config:Show current configuration'
+        'help:Show help for a command'
+    )
+
+    _arguments -C \
+        '1: :->command' \
+        '*: :->args'
+
+    case $state in
+        command)
+            _describe -t commands 'backup_cli commands' commands
+            ;;
+        args)
+            case $words[2] in
+                push)
+                    _arguments \
+                        '--vm-name[VM name to backup]:vm name:->vmname' \
+                        '--dry-run[Show what would be transferred without doing it]'
+                    ;;
+                pull)
+                    _arguments \
+                        '--vm-name[VM name to restore]:vm name:->vmname' \
+                        '--dest[Destination directory]:directory:_files -/' \
+                        '--dry-run[Show what would be transferred without doing it]'
+                    ;;
+                status)
+                    _arguments \
+                        '--vm-name[VM name to check]:vm name:->vmname'
+                    ;;
+                help)
+                    _describe -t commands 'backup_cli commands' commands
+                    ;;
+            esac
+
+            # Handle VM name completion
+            if [[ $state == vmname ]]; then
+                # Get VM names from prlctl
+                vm_names=(${(f)"$(prlctl list -a 2>/dev/null | tail -n +2 | sed 's/.*- //')"})
+                _describe -t vms 'VM names' vm_names
+            fi
+            ;;
+    esac
+}
+
+_backup_cli "$@"

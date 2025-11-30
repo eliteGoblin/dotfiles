@@ -1,0 +1,1243 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# backup_cli - Parallels VM Backup CLI Tool for Azure Blob Storage
+#
+# This tool backs up and restores Parallels Desktop VMs to Azure Blob Storage
+# using rclone with incremental sync (no need to re-upload unchanged files).
+#
+# Uses Azure CLI authentication - just run 'az login' once on your Mac.
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="$HOME/.config/backup_cli"
+CONFIG_FILE="$SCRIPT_DIR/backup_cli.yaml"
+CONFIG_EXAMPLE="$SCRIPT_DIR/backup_cli.example.yaml"
+LOCK_FILE="$CONFIG_DIR/.backup.lock"
+
+# Azure defaults (from provisioned infrastructure)
+AZURE_SUBSCRIPTION="cbe9549c-96e8-4547-a2ba-667a5f13e5ff"
+AZURE_STORAGE_ACCOUNT="stlocaldevbackupppozdl5m"
+AZURE_CONTAINER="parallels-vm"
+RCLONE_REMOTE="azure-backup"
+
+# Default VM settings
+DEFAULT_VM_DIR="$HOME/Parallels"
+DEFAULT_RESTORE_DIR="$HOME/ParallelsRestore"
+DEFAULT_TRANSFERS=4
+DEFAULT_CHECKERS=8
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Utility functions
+print_error() {
+    echo -e "${RED}ERROR: $*${NC}" >&2
+}
+
+print_success() {
+    echo -e "${GREEN}$*${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}WARNING: $*${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}$*${NC}"
+}
+
+print_header() {
+    echo -e "${BOLD}${CYAN}$*${NC}"
+}
+
+# Check if a command exists
+check_command() {
+    local cmd=$1
+    local install_cmd=$2
+
+    if ! command -v "$cmd" &>/dev/null; then
+        print_error "$cmd is not installed"
+        echo "To install, run:"
+        echo "  $install_cmd"
+        return 1
+    fi
+    return 0
+}
+
+# Check all prerequisites
+check_prerequisites() {
+    local failed=false
+
+    if ! check_command "rclone" "brew install rclone"; then
+        failed=true
+    fi
+
+    if ! check_command "az" "brew install azure-cli"; then
+        failed=true
+    fi
+
+    if ! check_command "prlctl" "(Parallels Desktop must be installed)"; then
+        failed=true
+    fi
+
+    if $failed; then
+        return 1
+    fi
+    return 0
+}
+
+# Check Azure login status
+check_azure_login() {
+    if ! az account show &>/dev/null; then
+        print_error "Not logged into Azure"
+        echo "To login, run:"
+        echo "  az login"
+        return 1
+    fi
+    return 0
+}
+
+# Check rclone can reach Azure blob
+check_rclone_connection() {
+    if ! rclone lsd "$RCLONE_REMOTE:" &>/dev/null; then
+        print_error "Cannot connect to Azure Blob Storage"
+        echo "Please check:"
+        echo "  1. You are logged into Azure: az login"
+        echo "  2. You have access to subscription: az account set --subscription $AZURE_SUBSCRIPTION"
+        echo "  3. Run 'backup_cli init' to reconfigure"
+        return 1
+    fi
+    return 0
+}
+
+# Load configuration from YAML (simple parser for our use case)
+load_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        return 1
+    fi
+
+    # Parse YAML config (simple grep-based for our flat structure)
+    VM_NAME=$(grep -E "^\s*vm_name:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | tr -d '"' | xargs || echo "")
+    VM_DIR=$(grep -E "^\s*vm_dir:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | sed "s|~|$HOME|" | tr -d '"' | xargs || echo "$DEFAULT_VM_DIR")
+    RESTORE_DIR=$(grep -E "^\s*dest_dir:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | sed "s|~|$HOME|" | tr -d '"' | xargs || echo "$DEFAULT_RESTORE_DIR")
+    SUSPEND_BEFORE_PUSH=$(grep -E "^\s*suspend_before_push:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | xargs || echo "true")
+    RESUME_AFTER_PUSH=$(grep -E "^\s*resume_after_push:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | xargs || echo "true")
+    TRANSFERS=$(grep -E "^\s*transfers:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | xargs || echo "$DEFAULT_TRANSFERS")
+    CHECKERS=$(grep -E "^\s*checkers:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | xargs || echo "$DEFAULT_CHECKERS")
+    BANDWIDTH_LIMIT=$(grep -E "^\s*bandwidth_limit:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | tr -d '"' | xargs || echo "")
+    EXCLUDE_ACTIVE_HDS=$(grep -E "^\s*exclude_active_hds:" "$CONFIG_FILE" 2>/dev/null | sed 's/.*:\s*//' | xargs || echo "false")
+
+    # Parse sync_rounds array (lines starting with "  - " after sync_rounds:)
+    SYNC_ROUNDS=()
+    local in_sync_rounds=false
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^sync_rounds: ]]; then
+            in_sync_rounds=true
+            continue
+        fi
+        if $in_sync_rounds; then
+            if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*(.*) ]]; then
+                local value="${BASH_REMATCH[1]}"
+                value=$(echo "$value" | xargs)  # trim whitespace
+                SYNC_ROUNDS+=("$value")
+            elif [[ "$line" =~ ^[a-zA-Z] ]]; then
+                # New section started, stop parsing sync_rounds
+                break
+            fi
+        fi
+    done < "$CONFIG_FILE"
+
+    return 0
+}
+
+# Get VM name (from flag, config, or auto-detect)
+get_vm_name() {
+    local vm_name="${1:-}"
+
+    if [[ -n "$vm_name" ]]; then
+        echo "$vm_name"
+        return
+    fi
+
+    if [[ -n "${VM_NAME:-}" ]]; then
+        echo "$VM_NAME"
+        return
+    fi
+
+    # Auto-detect first VM
+    local detected
+    detected=$(prlctl list -a --json 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//' || echo "")
+    echo "$detected"
+}
+
+# Get .pvm path for a VM
+get_pvm_path() {
+    local vm_name=$1
+    local vm_dir="${VM_DIR:-$DEFAULT_VM_DIR}"
+    vm_dir="${vm_dir/#\~/$HOME}"
+
+    # Try exact name first
+    if [[ -d "$vm_dir/$vm_name.pvm" ]]; then
+        echo "$vm_dir/$vm_name.pvm"
+        return
+    fi
+
+    # Try to find by searching (case-insensitive)
+    local found
+    found=$(find "$vm_dir" -maxdepth 1 -name "*.pvm" -type d 2>/dev/null | grep -i "$vm_name" | head -1 || echo "")
+    if [[ -n "$found" ]]; then
+        echo "$found"
+        return
+    fi
+
+    echo ""
+}
+
+# Get full VM name from partial match
+get_full_vm_name() {
+    local vm_name=$1
+    # Get all VM names and find one containing the search term (case-insensitive)
+    # Note: JSON has space after colon: "name": "value"
+    prlctl list -a --json 2>/dev/null | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"//' | grep -i "$vm_name" | head -1 || echo ""
+}
+
+# Get VM status (running, stopped, suspended, etc.)
+get_vm_status() {
+    local vm_name=$1
+    # First get the full VM name
+    local full_name
+    full_name=$(get_full_vm_name "$vm_name")
+    if [[ -z "$full_name" ]]; then
+        echo "unknown"
+        return
+    fi
+    # Flatten JSON and extract status for the matching VM
+    # JSON order: uuid, status, ip_configured, name - so status comes BEFORE name
+    prlctl list -a --json 2>/dev/null | tr '\n\t' ' ' | grep -o '"status": "[^"]*"[^}]*"name": "'"$full_name"'"' | grep -o '"status": "[^"]*"' | sed 's/"status": "//;s/"//' || echo "unknown"
+}
+
+# Get active (leaf) .hds GUID from DiskDescriptor.xml
+# The active .hds is the one that's NOT any snapshot's ParentGUID (the leaf node)
+get_active_hds_guid() {
+    local pvm_path=$1
+    local hdd_path
+    hdd_path=$(find "$pvm_path" -name "*.hdd" -type d 2>/dev/null | head -1)
+
+    if [[ -z "$hdd_path" ]]; then
+        return 1
+    fi
+
+    local descriptor="$hdd_path/DiskDescriptor.xml"
+    if [[ ! -f "$descriptor" ]]; then
+        return 1
+    fi
+
+    # Get all GUIDs from the Snapshots section
+    local all_guids
+    all_guids=$(grep -o '<GUID>{[^}]*}</GUID>' "$descriptor" | sed 's/<[^>]*>//g')
+
+    # Get all ParentGUIDs (these are "frozen" snapshots that have children)
+    local parent_guids
+    parent_guids=$(grep -o '<ParentGUID>{[^}]*}</ParentGUID>' "$descriptor" | sed 's/<[^>]*>//g')
+
+    # Find the GUID that's not anyone's parent = the active leaf
+    for guid in $all_guids; do
+        if ! echo "$parent_guids" | grep -q "$guid"; then
+            echo "$guid"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Acquire lock for backup operations
+acquire_lock() {
+    if [[ -f "$LOCK_FILE" ]]; then
+        local pid
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            print_error "Another backup operation is in progress (PID: $pid)"
+            exit 1
+        fi
+        # Stale lock file, remove it
+        rm -f "$LOCK_FILE"
+    fi
+
+    mkdir -p "$CONFIG_DIR"
+    echo $$ > "$LOCK_FILE"
+}
+
+# Release lock
+release_lock() {
+    rm -f "$LOCK_FILE"
+}
+
+# Cleanup on exit (resume VM if needed, release lock)
+cleanup() {
+    local exit_code=$?
+
+    if [[ "${VM_WAS_RUNNING:-false}" == "true" ]] && [[ "${RESUME_AFTER_PUSH:-true}" == "true" ]]; then
+        local vm_name="${CURRENT_VM_NAME:-}"
+        if [[ -n "$vm_name" ]]; then
+            print_info "Resuming VM after interrupt..."
+            prlctl resume "$vm_name" 2>/dev/null || true
+        fi
+    fi
+
+    release_lock
+    exit $exit_code
+}
+
+# Generate example config file
+generate_example_config() {
+    cat > "$CONFIG_EXAMPLE" << 'EOF'
+# =============================================================================
+# Parallels VM Backup CLI Configuration
+# =============================================================================
+# Copy this file to config.yaml and customize as needed.
+# All paths support ~ for home directory expansion.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Azure Blob Storage Configuration
+# -----------------------------------------------------------------------------
+azure:
+  # Storage account name (do not change unless using different storage)
+  storage_account: stlocaldevbackupppozdl5m
+
+  # Container name for VM backups
+  container: parallels-vm
+
+  # rclone remote name (configured automatically by 'backup_cli init')
+  rclone_remote: azure-backup
+
+# -----------------------------------------------------------------------------
+# Parallels VM Configuration
+# -----------------------------------------------------------------------------
+parallels:
+  # Default VM name to backup (used when --vm-name not specified)
+  # Run 'prlctl list -a' to see available VMs
+  vm_name: Ubuntu
+
+  # Path to Parallels VMs directory
+  # Default: ~/Parallels
+  vm_dir: ~/Parallels
+
+# -----------------------------------------------------------------------------
+# Restore Configuration
+# -----------------------------------------------------------------------------
+restore:
+  # Default destination for pulled/restored VMs
+  # IMPORTANT: Pull does NOT overwrite the original VM location by default
+  # It downloads to this directory instead for safety
+  # Default: ~/ParallelsRestore
+  dest_dir: ~/ParallelsRestore
+
+# -----------------------------------------------------------------------------
+# Sync Options
+# -----------------------------------------------------------------------------
+options:
+  # Suspend VM before push for data consistency (recommended)
+  suspend_before_push: true
+
+  # Resume VM after push completes
+  resume_after_push: true
+
+  # Number of parallel file transfers (1-16)
+  transfers: 4
+
+  # Number of parallel checkers for comparing files (1-16)
+  checkers: 8
+
+  # Bandwidth limit for transfers (empty = unlimited)
+  # Examples: "10M" = 10 MB/s, "1G" = 1 GB/s, "" = unlimited
+  bandwidth_limit: ""
+EOF
+}
+
+# Generate actual config file
+generate_config() {
+    local vm_name=$1
+
+    cat > "$CONFIG_FILE" << EOF
+# Parallels VM Backup CLI Configuration
+# Generated by: backup_cli init
+# Date: $(date '+%Y-%m-%d %H:%M:%S')
+
+azure:
+  storage_account: $AZURE_STORAGE_ACCOUNT
+  container: $AZURE_CONTAINER
+  rclone_remote: $RCLONE_REMOTE
+
+parallels:
+  vm_name: $vm_name
+  vm_dir: ~/Parallels
+
+restore:
+  dest_dir: ~/ParallelsRestore
+
+options:
+  suspend_before_push: true
+  resume_after_push: true
+  transfers: 4
+  checkers: 8
+  bandwidth_limit: ""
+EOF
+}
+
+# =============================================================================
+# Commands
+# =============================================================================
+
+# Init command - setup rclone and config
+cmd_init() {
+    print_header "=== Initializing Backup CLI ==="
+    echo
+
+    # Check prerequisites
+    print_info "Checking prerequisites..."
+    if ! check_prerequisites; then
+        exit 1
+    fi
+    print_success "  rclone installed"
+    print_success "  Azure CLI installed"
+    print_success "  Parallels Desktop installed"
+    echo
+
+    # Check Azure login
+    print_info "Checking Azure authentication..."
+    if ! check_azure_login; then
+        exit 1
+    fi
+    print_success "  Logged into Azure"
+
+    # Set correct subscription
+    print_info "Setting Azure subscription..."
+    if ! az account set --subscription "$AZURE_SUBSCRIPTION" 2>/dev/null; then
+        print_error "Failed to set subscription $AZURE_SUBSCRIPTION"
+        echo "You may not have access to this subscription."
+        exit 1
+    fi
+    print_success "  Subscription set: $AZURE_SUBSCRIPTION"
+    echo
+
+    # Configure rclone
+    print_info "Configuring rclone remote..."
+    if rclone config show "$RCLONE_REMOTE" &>/dev/null; then
+        print_info "  Remote '$RCLONE_REMOTE' already exists, updating..."
+        rclone config delete "$RCLONE_REMOTE" 2>/dev/null || true
+    fi
+
+    if ! rclone config create "$RCLONE_REMOTE" azureblob \
+        account="$AZURE_STORAGE_ACCOUNT" \
+        env_auth=true &>/dev/null; then
+        print_error "Failed to configure rclone remote"
+        exit 1
+    fi
+    print_success "  rclone remote '$RCLONE_REMOTE' configured"
+    echo
+
+    # Test connection
+    print_info "Testing Azure Blob connection..."
+    if ! rclone lsd "$RCLONE_REMOTE:$AZURE_CONTAINER" &>/dev/null; then
+        # Container might not exist, try to create it
+        print_info "  Container '$AZURE_CONTAINER' not found, it will be created on first push"
+    else
+        print_success "  Connected to container '$AZURE_CONTAINER'"
+    fi
+    echo
+
+    # Detect VMs
+    print_info "Detecting Parallels VMs..."
+    local vms
+    vms=$(prlctl list -a 2>/dev/null | tail -n +2 | awk '{$1=$1};1' || echo "")
+    if [[ -z "$vms" ]]; then
+        print_warning "No VMs found"
+    else
+        echo "$vms" | while read -r line; do
+            echo "    $line"
+        done
+    fi
+    echo
+
+    # Get default VM name
+    local default_vm
+    default_vm=$(prlctl list -a --json 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//' || echo "Ubuntu")
+
+    # Create config directory for lock file
+    mkdir -p "$CONFIG_DIR"
+
+    # Generate configs (in same directory as script)
+    print_info "Creating configuration files..."
+    generate_config "$default_vm"
+    generate_example_config
+    print_success "  Created: $CONFIG_FILE"
+    print_success "  Created: $CONFIG_EXAMPLE"
+    echo
+
+    # Success
+    print_header "=== Initialization Complete ==="
+    echo
+    print_success "Backup CLI is ready to use!"
+    echo
+    echo "Next steps:"
+    echo "  1. Review/edit config: $CONFIG_FILE"
+    echo "  2. Backup your VM:     backup_cli push"
+    echo "  3. Check status:       backup_cli status"
+    echo
+}
+
+# Push command - backup VM to Azure
+cmd_push() {
+    local vm_name=""
+    local dry_run=false
+    local exclude_active=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --vm-name)
+                vm_name="$2"
+                shift 2
+                ;;
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            --exclude-active)
+                exclude_active=true
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    # Load config
+    if ! load_config; then
+        print_error "Config not found. Run 'backup_cli init' first."
+        exit 1
+    fi
+
+    # Get VM name
+    vm_name=$(get_vm_name "$vm_name")
+    if [[ -z "$vm_name" ]]; then
+        print_error "No VM specified and none detected"
+        echo "Use --vm-name <name> or set vm_name in config"
+        exit 1
+    fi
+
+    # Get .pvm path
+    local pvm_path
+    pvm_path=$(get_pvm_path "$vm_name")
+    if [[ -z "$pvm_path" ]] || [[ ! -d "$pvm_path" ]]; then
+        print_error "VM not found: $vm_name"
+        echo "Searched in: ${VM_DIR:-$DEFAULT_VM_DIR}"
+        exit 1
+    fi
+
+    local pvm_name
+    pvm_name=$(basename "$pvm_path")
+
+    print_header "=== Pushing VM to Azure ==="
+    echo
+    print_info "VM Name:     $vm_name"
+    print_info "Local Path:  $pvm_path"
+    print_info "Remote Path: $RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name"
+    if $dry_run; then
+        print_warning "DRY RUN - no files will be transferred"
+    fi
+    echo
+
+    # Check prerequisites
+    if ! check_rclone_connection; then
+        exit 1
+    fi
+
+    # Acquire lock
+    acquire_lock
+    trap cleanup EXIT INT TERM
+
+    # Get full VM name for prlctl commands
+    local full_vm_name
+    full_vm_name=$(get_full_vm_name "$vm_name")
+    if [[ -z "$full_vm_name" ]]; then
+        print_error "VM not found: $vm_name"
+        echo "Available VMs:"
+        prlctl list -a 2>/dev/null | tail -n +2 | sed 's/^/  /'
+        exit 1
+    fi
+
+    # Check VM status and suspend if needed
+    local vm_status
+    vm_status=$(get_vm_status "$vm_name")
+    VM_WAS_RUNNING=false
+    CURRENT_VM_NAME="$full_vm_name"
+
+    if [[ "$vm_status" == "running" ]] && [[ "${SUSPEND_BEFORE_PUSH:-true}" == "true" ]]; then
+        print_warning "VM '$full_vm_name' is running."
+        if ! $dry_run; then
+            echo -n "Suspend VM before backup for data consistency? [Y/n] "
+            read -r response
+            if [[ "$response" =~ ^[Nn]$ ]]; then
+                print_info "Continuing without suspend (files may change during sync)"
+            else
+                print_info "Suspending VM..."
+                VM_WAS_RUNNING=true
+                prlctl suspend "$full_vm_name"
+                print_success "  VM suspended"
+            fi
+        else
+            print_info "  [DRY RUN] Would ask to suspend VM"
+        fi
+        echo
+    fi
+
+    # Build base rclone args
+    local base_args=(
+        "$pvm_path"
+        "$RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name"
+        "--progress"
+        "--transfers" "${TRANSFERS:-$DEFAULT_TRANSFERS}"
+        "--checkers" "${CHECKERS:-$DEFAULT_CHECKERS}"
+        "--exclude" "*.mem"      # Exclude RAM snapshots (6GB+ each, only needed to resume suspended state)
+    )
+
+    # Exclude active .hds if enabled (via flag or config)
+    if $exclude_active || [[ "${EXCLUDE_ACTIVE_HDS:-false}" == "true" ]]; then
+        local active_guid
+        if active_guid=$(get_active_hds_guid "$pvm_path"); then
+            base_args+=("--exclude" "*${active_guid}*")
+            print_warning "Excluding active .hds: ${active_guid}"
+            print_info "  Backup will represent last SmartGuard snapshot state"
+        else
+            print_warning "Could not detect active .hds, backing up all files"
+        fi
+    fi
+
+    if [[ -n "${BANDWIDTH_LIMIT:-}" ]]; then
+        base_args+=("--bwlimit" "$BANDWIDTH_LIMIT")
+    fi
+
+    if $dry_run; then
+        base_args+=("--dry-run")
+    fi
+
+    local start_time
+    start_time=$(date +%s)
+
+    # Run sync rounds from config (or single round if not configured)
+    local total_rounds=${#SYNC_ROUNDS[@]}
+
+    if [[ $total_rounds -gt 0 ]]; then
+        # Run configured rounds
+        local round_num=1
+        for max_size in "${SYNC_ROUNDS[@]}"; do
+            print_header "=== Round $round_num/$((total_rounds + 1)): Syncing files < $max_size ==="
+            echo
+            local round_args=("sync" "${base_args[@]}" "--max-size" "$max_size")
+
+            if rclone "${round_args[@]}"; then
+                print_success "Round $round_num complete (files < $max_size)"
+            else
+                print_warning "Round $round_num had errors, continuing..."
+            fi
+            echo
+            ((round_num++))
+        done
+
+        # Final round: sync all remaining (no size limit)
+        print_header "=== Round $round_num/$((total_rounds + 1)): Syncing remaining large files ==="
+        echo
+    else
+        # No rounds configured, single sync
+        print_info "Starting sync..."
+    fi
+
+    local final_args=("sync" "${base_args[@]}")
+
+    if rclone "${final_args[@]}"; then
+        local end_time
+        end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+
+        echo
+        print_success "=== Push Complete ==="
+        print_info "Total duration: ${duration}s"
+
+        # Show remote size
+        if ! $dry_run; then
+            local remote_size
+            remote_size=$(rclone size "$RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | sed 's/"bytes"://' || echo "0")
+            if [[ -n "$remote_size" ]] && [[ "$remote_size" -gt 0 ]]; then
+                local human_size
+                human_size=$(numfmt --to=iec-i --suffix=B "$remote_size" 2>/dev/null || echo "${remote_size} bytes")
+                print_info "Remote size: $human_size"
+            fi
+        fi
+    else
+        print_error "Sync failed!"
+        exit 1
+    fi
+
+    # Resume VM if it was running
+    if [[ "$VM_WAS_RUNNING" == "true" ]] && [[ "${RESUME_AFTER_PUSH:-true}" == "true" ]]; then
+        echo
+        print_info "Resuming VM..."
+        if ! $dry_run; then
+            prlctl resume "$full_vm_name"
+            print_success "  VM resumed"
+        else
+            print_info "  [DRY RUN] Would resume VM"
+        fi
+        VM_WAS_RUNNING=false  # Prevent cleanup from resuming again
+    fi
+
+    echo
+}
+
+# Pull command - restore VM from Azure
+cmd_pull() {
+    local vm_name=""
+    local dest_dir=""
+    local dry_run=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --vm-name)
+                vm_name="$2"
+                shift 2
+                ;;
+            --dest)
+                dest_dir="$2"
+                shift 2
+                ;;
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    # Load config
+    if ! load_config; then
+        print_error "Config not found. Run 'backup_cli init' first."
+        exit 1
+    fi
+
+    # Get VM name
+    vm_name=$(get_vm_name "$vm_name")
+    if [[ -z "$vm_name" ]]; then
+        print_error "No VM specified"
+        echo "Use --vm-name <name> or set vm_name in config"
+        exit 1
+    fi
+
+    # Determine destination
+    dest_dir="${dest_dir:-${RESTORE_DIR:-$DEFAULT_RESTORE_DIR}}"
+    dest_dir="${dest_dir/#\~/$HOME}"
+
+    # Find the .pvm name in remote
+    local remote_pvms
+    remote_pvms=$(rclone lsd "$RCLONE_REMOTE:$AZURE_CONTAINER" 2>/dev/null | awk '{print $NF}' | grep "\.pvm$" || echo "")
+
+    local pvm_name=""
+    while IFS= read -r pvm; do
+        if [[ "$pvm" == *"$vm_name"* ]]; then
+            pvm_name="$pvm"
+            break
+        fi
+    done <<< "$remote_pvms"
+
+    if [[ -z "$pvm_name" ]]; then
+        print_error "VM backup not found in Azure: $vm_name"
+        echo "Available backups:"
+        cmd_list
+        exit 1
+    fi
+
+    local dest_path="$dest_dir/$pvm_name"
+
+    print_header "=== Pulling VM from Azure ==="
+    echo
+    print_info "VM Name:     $vm_name"
+    print_info "Remote Path: $RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name"
+    print_info "Local Dest:  $dest_path"
+    if $dry_run; then
+        print_warning "DRY RUN - no files will be transferred"
+    fi
+    echo
+
+    # Check prerequisites
+    if ! check_rclone_connection; then
+        exit 1
+    fi
+
+    # Safety check - warn if destination exists
+    if [[ -d "$dest_path" ]]; then
+        print_warning "Destination already exists: $dest_path"
+        if ! $dry_run; then
+            echo -n "Continue and overwrite? [y/N] "
+            read -r response
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                echo "Aborted."
+                exit 0
+            fi
+        fi
+        echo
+    fi
+
+    # Acquire lock
+    acquire_lock
+    trap cleanup EXIT INT TERM
+
+    # Create destination directory
+    mkdir -p "$dest_dir"
+
+    # Build rclone command
+    local rclone_args=(
+        "sync"
+        "$RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name"
+        "$dest_path"
+        "--progress"
+        "--transfers" "${TRANSFERS:-$DEFAULT_TRANSFERS}"
+        "--checkers" "${CHECKERS:-$DEFAULT_CHECKERS}"
+    )
+
+    if [[ -n "${BANDWIDTH_LIMIT:-}" ]]; then
+        rclone_args+=("--bwlimit" "$BANDWIDTH_LIMIT")
+    fi
+
+    if $dry_run; then
+        rclone_args+=("--dry-run")
+    fi
+
+    # Run sync
+    print_info "Starting download..."
+    local start_time
+    start_time=$(date +%s)
+
+    if rclone "${rclone_args[@]}"; then
+        local end_time
+        end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+
+        echo
+        print_success "=== Pull Complete ==="
+        print_info "Duration: ${duration}s"
+
+        if ! $dry_run; then
+            local local_size
+            local_size=$(du -sh "$dest_path" 2>/dev/null | awk '{print $1}' || echo "unknown")
+            print_info "Downloaded size: $local_size"
+        fi
+
+        echo
+        echo "Restore complete! To use the restored VM:"
+        echo "  open \"$dest_path\""
+        echo
+        echo "To replace your current VM, manually move:"
+        echo "  mv \"${VM_DIR:-$DEFAULT_VM_DIR}/$pvm_name\" \"${VM_DIR:-$DEFAULT_VM_DIR}/$pvm_name.old\""
+        echo "  mv \"$dest_path\" \"${VM_DIR:-$DEFAULT_VM_DIR}/\""
+    else
+        print_error "Download failed!"
+        exit 1
+    fi
+
+    echo
+}
+
+# Status command - show diff between local and remote
+cmd_status() {
+    local vm_name=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --vm-name)
+                vm_name="$2"
+                shift 2
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    # Load config
+    if ! load_config; then
+        print_error "Config not found. Run 'backup_cli init' first."
+        exit 1
+    fi
+
+    # Get VM name
+    vm_name=$(get_vm_name "$vm_name")
+    if [[ -z "$vm_name" ]]; then
+        print_error "No VM specified and none detected"
+        exit 1
+    fi
+
+    # Get .pvm path
+    local pvm_path
+    pvm_path=$(get_pvm_path "$vm_name")
+    if [[ -z "$pvm_path" ]] || [[ ! -d "$pvm_path" ]]; then
+        print_error "VM not found locally: $vm_name"
+        exit 1
+    fi
+
+    local pvm_name
+    pvm_name=$(basename "$pvm_path")
+
+    print_header "=== Backup Status ==="
+    echo
+    print_info "VM Name:     $vm_name"
+    print_info "Local Path:  $pvm_path"
+    print_info "Remote Path: $RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name"
+    echo
+
+    # Check prerequisites
+    if ! check_rclone_connection; then
+        exit 1
+    fi
+
+    # Local size
+    print_info "Local size:"
+    local local_size
+    local_size=$(du -sh "$pvm_path" 2>/dev/null | awk '{print $1}' || echo "unknown")
+    echo "  $local_size"
+    echo
+
+    # Remote size
+    print_info "Remote size:"
+    local remote_info
+    if remote_info=$(rclone size "$RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name" 2>/dev/null); then
+        echo "$remote_info" | sed 's/^/  /'
+    else
+        echo "  (not yet backed up)"
+    fi
+    echo
+
+    # Check differences
+    print_info "Checking differences (local → remote)..."
+    echo
+
+    local diff_output
+    diff_output=$(rclone check "$pvm_path" "$RCLONE_REMOTE:$AZURE_CONTAINER/$pvm_name" --one-way 2>&1 || true)
+
+    if echo "$diff_output" | grep -q "ERROR"; then
+        print_warning "Differences found:"
+        echo "$diff_output" | grep -E "(ERROR|: )" | head -20 | sed 's/^/  /'
+        local diff_count
+        diff_count=$(echo "$diff_output" | grep -c "ERROR" || echo "0")
+        if [[ "$diff_count" -gt 20 ]]; then
+            echo "  ... and $((diff_count - 20)) more"
+        fi
+        echo
+        print_info "Run 'backup_cli push' to sync changes to Azure"
+    else
+        print_success "Local and remote are in sync!"
+    fi
+    echo
+}
+
+# List command - show available backups in Azure
+cmd_list() {
+    print_header "=== Available Backups in Azure ==="
+    echo
+
+    # Check prerequisites
+    if ! check_prerequisites &>/dev/null; then
+        print_error "Prerequisites not met. Run 'backup_cli init' first."
+        exit 1
+    fi
+
+    if ! check_rclone_connection 2>/dev/null; then
+        print_error "Cannot connect to Azure. Run 'backup_cli init' to configure."
+        exit 1
+    fi
+
+    local backups
+    backups=$(rclone lsd "$RCLONE_REMOTE:$AZURE_CONTAINER" 2>/dev/null || echo "")
+
+    if [[ -z "$backups" ]]; then
+        print_info "No backups found in Azure"
+        echo
+        echo "To backup your VM, run:"
+        echo "  backup_cli push"
+    else
+        echo "Container: $AZURE_CONTAINER"
+        echo
+        printf "%-40s %15s %s\n" "NAME" "SIZE" "MODIFIED"
+        printf "%-40s %15s %s\n" "----" "----" "--------"
+
+        while read -r line; do
+            if [[ -z "$line" ]]; then continue; fi
+            local name
+            name=$(echo "$line" | awk '{print $NF}')
+
+            # Get size for each backup
+            local size_info
+            size_info=$(rclone size "$RCLONE_REMOTE:$AZURE_CONTAINER/$name" --json 2>/dev/null || echo '{"bytes":0}')
+            local bytes
+            bytes=$(echo "$size_info" | grep -o '"bytes":[0-9]*' | sed 's/"bytes"://' || echo "0")
+            local human_size
+            human_size=$(numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B")
+
+            # Get modified time
+            local mod_time
+            mod_time=$(echo "$line" | awk '{print $2, $3}')
+
+            printf "%-40s %15s %s\n" "$name" "$human_size" "$mod_time"
+        done <<< "$backups"
+    fi
+    echo
+}
+
+# Config command - show current configuration
+cmd_config() {
+    print_header "=== Current Configuration ==="
+    echo
+
+    if [[ -f "$CONFIG_FILE" ]]; then
+        print_info "Config file: $CONFIG_FILE"
+        echo
+        cat "$CONFIG_FILE"
+    else
+        print_warning "No config file found"
+        echo
+        echo "Run 'backup_cli init' to create configuration"
+    fi
+    echo
+
+    # Show rclone remote
+    print_info "rclone remote:"
+    if rclone config show "$RCLONE_REMOTE" 2>/dev/null; then
+        :
+    else
+        echo "  (not configured)"
+    fi
+    echo
+}
+
+# Help command
+cmd_help() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        init)
+            cat << 'EOF'
+backup_cli init - Initialize backup tool
+
+USAGE:
+    backup_cli init
+
+DESCRIPTION:
+    Sets up the backup tool for first use:
+    1. Checks prerequisites (rclone, Azure CLI, Parallels)
+    2. Verifies Azure login
+    3. Configures rclone remote for Azure Blob
+    4. Detects Parallels VMs
+    5. Creates configuration files
+
+FILES CREATED:
+    ~/.config/backup_cli/config.yaml         - Main configuration
+    ~/.config/backup_cli/config.example.yaml - Example with documentation
+EOF
+            ;;
+        push)
+            cat << 'EOF'
+backup_cli push - Backup VM to Azure
+
+USAGE:
+    backup_cli push [--vm-name <name>] [--dry-run] [--exclude-active]
+
+OPTIONS:
+    --vm-name <name>  VM name to backup (default: from config)
+    --dry-run         Show what would be transferred without doing it
+    --exclude-active  Skip the active .hds delta file (faster, but backup
+                      represents last SmartGuard snapshot, not current state)
+
+DESCRIPTION:
+    Syncs the local .pvm bundle to Azure Blob Storage.
+    Only changed files are uploaded (incremental sync).
+
+    By default, suspends the VM before backup for data consistency
+    and resumes it after completion. Configure this in config.yaml.
+
+    Use --exclude-active (or set exclude_active_hds: true in config) to
+    skip the constantly-changing active delta. This makes backups faster
+    but means restore will revert to last SmartGuard snapshot state.
+
+EXAMPLES:
+    backup_cli push                           # Backup default VM
+    backup_cli push --vm-name "Ubuntu 24"     # Backup specific VM
+    backup_cli push --dry-run                 # Preview what would be synced
+    backup_cli push --exclude-active          # Fast backup, skip active delta
+EOF
+            ;;
+        pull)
+            cat << 'EOF'
+backup_cli pull - Restore VM from Azure
+
+USAGE:
+    backup_cli pull [--vm-name <name>] [--dest <path>] [--dry-run]
+
+OPTIONS:
+    --vm-name <name>  VM name to restore (default: from config)
+    --dest <path>     Destination directory (default: ~/ParallelsRestore)
+    --dry-run         Show what would be transferred without doing it
+
+DESCRIPTION:
+    Downloads VM backup from Azure to local disk.
+
+    SAFETY: Does NOT overwrite your ~/Parallels folder by default.
+    Downloads to ~/ParallelsRestore instead.
+
+EXAMPLES:
+    backup_cli pull                           # Restore default VM
+    backup_cli pull --dest ~/VMs              # Restore to custom location
+    backup_cli pull --dry-run                 # Preview download
+EOF
+            ;;
+        status)
+            cat << 'EOF'
+backup_cli status - Show sync status
+
+USAGE:
+    backup_cli status [--vm-name <name>]
+
+OPTIONS:
+    --vm-name <name>  VM name to check (default: from config)
+
+DESCRIPTION:
+    Compares local VM with Azure backup and shows:
+    - Local and remote sizes
+    - Files that differ between local and remote
+    - Whether a sync is needed
+EOF
+            ;;
+        list)
+            cat << 'EOF'
+backup_cli list - List available backups
+
+USAGE:
+    backup_cli list
+
+DESCRIPTION:
+    Shows all VM backups stored in Azure Blob Storage
+    with their sizes and last modified dates.
+EOF
+            ;;
+        config)
+            cat << 'EOF'
+backup_cli config - Show configuration
+
+USAGE:
+    backup_cli config
+
+DESCRIPTION:
+    Displays current configuration including:
+    - Config file contents
+    - rclone remote settings
+EOF
+            ;;
+        *)
+            cat << 'EOF'
+backup_cli - Parallels VM Backup Tool for Azure Blob Storage
+
+USAGE:
+    backup_cli <command> [options]
+
+COMMANDS:
+    init              Initialize backup tool (first-time setup)
+    push              Backup VM to Azure (incremental sync)
+    pull              Restore VM from Azure
+    status            Show differences between local and remote
+    list              List available backups in Azure
+    config            Show current configuration
+    help [command]    Show help for a command
+
+QUICK START:
+    1. brew install rclone azure-cli
+    2. az login
+    3. backup_cli init
+    4. backup_cli push
+    5. backup_cli status
+
+EXAMPLES:
+    backup_cli push                    # Backup default VM
+    backup_cli push --dry-run          # Preview backup
+    backup_cli pull --dest ~/Restore   # Restore to custom location
+    backup_cli status                  # Check sync status
+    backup_cli help push               # Help for push command
+
+FILES:
+    ~/.config/backup_cli/config.yaml   - Configuration file
+    ~/.config/rclone/rclone.conf       - rclone configuration
+
+For more information, see:
+    backup_cli help <command>
+EOF
+            ;;
+    esac
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        init)
+            cmd_init "$@"
+            ;;
+        push)
+            cmd_push "$@"
+            ;;
+        pull)
+            cmd_pull "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        config)
+            cmd_config "$@"
+            ;;
+        help|--help|-h)
+            cmd_help "$@"
+            ;;
+        "")
+            cmd_help
+            ;;
+        *)
+            print_error "Unknown command: $cmd"
+            echo
+            echo "Run 'backup_cli help' for usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

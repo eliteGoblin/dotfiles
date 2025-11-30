@@ -1,0 +1,61 @@
+# =============================================================================
+# Parallels VM Backup CLI Configuration
+# =============================================================================
+# Copy this file to config.yaml and customize as needed.
+# All paths support ~ for home directory expansion.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Azure Blob Storage Configuration
+# -----------------------------------------------------------------------------
+azure:
+  # Storage account name (do not change unless using different storage)
+  storage_account: stlocaldevbackupppozdl5m
+
+  # Container name for VM backups
+  container: parallels-vm
+
+  # rclone remote name (configured automatically by 'backup_cli init')
+  rclone_remote: azure-backup
+
+# -----------------------------------------------------------------------------
+# Parallels VM Configuration
+# -----------------------------------------------------------------------------
+parallels:
+  # Default VM name to backup (used when --vm-name not specified)
+  # Run 'prlctl list -a' to see available VMs
+  vm_name: Ubuntu
+
+  # Path to Parallels VMs directory
+  # Default: ~/Parallels
+  vm_dir: ~/Parallels
+
+# -----------------------------------------------------------------------------
+# Restore Configuration
+# -----------------------------------------------------------------------------
+restore:
+  # Default destination for pulled/restored VMs
+  # IMPORTANT: Pull does NOT overwrite the original VM location by default
+  # It downloads to this directory instead for safety
+  # Default: ~/ParallelsRestore
+  dest_dir: ~/ParallelsRestore
+
+# -----------------------------------------------------------------------------
+# Sync Options
+# -----------------------------------------------------------------------------
+options:
+  # Suspend VM before push for data consistency (recommended)
+  suspend_before_push: true
+
+  # Resume VM after push completes
+  resume_after_push: true
+
+  # Number of parallel file transfers (1-16)
+  transfers: 4
+
+  # Number of parallel checkers for comparing files (1-16)
+  checkers: 8
+
+  # Bandwidth limit for transfers (empty = unlimited)
+  # Examples: "10M" = 10 MB/s, "1G" = 1 GB/s, "" = unlimited
+  bandwidth_limit: ""
