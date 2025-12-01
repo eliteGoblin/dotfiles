@@ -73,7 +73,7 @@ print_info() {
 get_vm_ip() {
     local vm_ip
     local retry_count=0
-    local max_retries=1
+    local max_retries=2  # Try: 1) NetworkManager restart, 2) nmcli reconnect
 
     # Check if VM is running
     if ! "$PRLCTL" list | grep -q "$VM_NAME"; then
@@ -91,30 +91,49 @@ get_vm_ip() {
             return 0
         fi
 
-        # No IP detected
-        if [[ $retry_count -eq 0 ]]; then
-            # First attempt failed, try auto-recovery
-            print_warning "VM is running but has no IPv4 address"
-            print_info "Attempting auto-recovery: restarting NetworkManager in VM..."
+        # No IP detected - try recovery methods
+        case $retry_count in
+            0)
+                # First attempt: restart NetworkManager
+                print_warning "VM is running but has no IPv4 address"
+                print_info "Attempting auto-recovery (1/2): restarting NetworkManager..."
 
-            if "$PRLCTL" exec "$VM_NAME" sudo systemctl restart NetworkManager 2>/dev/null; then
-                print_info "Waiting for network to recover..."
-                sleep 6
-                ((retry_count++))
-            else
-                print_error "Failed to restart NetworkManager"
+                if "$PRLCTL" exec "$VM_NAME" sudo systemctl restart NetworkManager 2>/dev/null; then
+                    print_info "Waiting for network to recover..."
+                    sleep 5
+                else
+                    print_warning "Failed to restart NetworkManager, trying next method..."
+                fi
+                ;;
+            1)
+                # Second attempt: cycle the network connection via nmcli
+                print_info "Attempting auto-recovery (2/2): cycling network connection..."
+
+                # nmcli connection down may fail if not managed, but up should work
+                "$PRLCTL" exec "$VM_NAME" sudo nmcli connection down "$NETWORK_INTERFACE" 2>/dev/null || true
+                sleep 2
+                if "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$NETWORK_INTERFACE" 2>/dev/null; then
+                    print_info "Waiting for DHCP lease..."
+                    sleep 5
+                else
+                    print_warning "nmcli connection up failed"
+                fi
+                ;;
+            *)
+                # All retries exhausted
+                print_error "Auto-recovery failed. VM still has no IPv4 address."
+                print_info "This usually happens when:"
+                print_info "  - You recently disconnected/reconnected to WiFi or hotspot"
+                print_info "  - The VM's DHCP client isn't working properly"
+                print_info "  - The network interface name changed"
+                print_info ""
+                print_info "Try manually:"
+                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection down $NETWORK_INTERFACE"
+                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection up $NETWORK_INTERFACE"
                 exit 1
-            fi
-        else
-            # Retry failed
-            print_error "Auto-recovery failed. VM still has no IPv4 address."
-            print_info "This usually happens when:"
-            print_info "  - You recently disconnected/reconnected to WiFi or hotspot"
-            print_info "  - The VM's DHCP client isn't working properly"
-            print_info ""
-            print_info "Try manually: $PRLCTL exec \"$VM_NAME\" sudo systemctl restart NetworkManager"
-            exit 1
-        fi
+                ;;
+        esac
+        ((retry_count++))
     done
 }
 
@@ -676,12 +695,19 @@ DESCRIPTION:
 
 AUTO-RECOVERY:
     If the VM is running but has no IPv4 address (common after network
-    disconnect/reconnect), the script will automatically:
-    - Restart NetworkManager in the VM
-    - Wait for network to recover
-    - Retry getting the IP address
+    disconnect/reconnect), the script will automatically try two recovery methods:
 
-    This handles cases like reconnecting to phone hotspot or WiFi.
+    1. Restart NetworkManager service
+       - sudo systemctl restart NetworkManager
+       - Waits 5 seconds for recovery
+
+    2. Cycle the network connection via nmcli (more reliable)
+       - sudo nmcli connection down enp0s5
+       - sudo nmcli connection up enp0s5
+       - Forces DHCP to request a new lease
+
+    This handles cases like reconnecting to phone hotspot or WiFi where
+    the DHCP lease was lost.
 
 WHEN TO USE:
     Run 'dev_sync sync' as your daily dev environment setup command:

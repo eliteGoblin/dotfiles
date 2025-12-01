@@ -168,6 +168,24 @@ start_socat() {
     local lan_ip
     lan_ip=$(get_lan_ip)
 
+    # Check if socat is already running but bound to wrong IP (network changed)
+    if [[ -f "$SOCAT_PID_FILE" ]]; then
+        local socat_pid
+        socat_pid=$(cat "$SOCAT_PID_FILE")
+        if is_process_running "$socat_pid"; then
+            # Check what IP socat is currently bound to
+            local bound_ip
+            bound_ip=$(lsof -p "$socat_pid" -a -i "TCP:$SOCAT_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $9}' | cut -d: -f1 || true)
+            if [[ -n "$bound_ip" && "$bound_ip" != "$lan_ip" ]]; then
+                print_warning "socat is bound to old IP ($bound_ip), current LAN IP is $lan_ip"
+                print_info "Restarting socat to bind to new IP..."
+                kill "$socat_pid" 2>/dev/null || true
+                sleep 1
+                rm -f "$SOCAT_PID_FILE"
+            fi
+        fi
+    fi
+
     # Check port
     if ! check_port "$SOCAT_PORT" "$SOCAT_PID_FILE"; then
         print_info "socat already running (PID $(cat "$SOCAT_PID_FILE"))"
