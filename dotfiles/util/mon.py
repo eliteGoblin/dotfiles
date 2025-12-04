@@ -25,11 +25,11 @@ def move_cursor_randomly():
     print(f"Moved cursor by: ({move_x}, {move_y})")
 
 # Function to handle typing or moving for a specified duration
-def type_or_move_for_duration(duration_in_minutes):
+def type_or_move_for_duration(duration_in_minutes, enable_keystroke=False):
     duration_in_seconds = duration_in_minutes * 60
     start_time = time.time()
     while time.time() - start_time < duration_in_seconds:
-        if random.choice([True, False]):
+        if enable_keystroke and random.choice([True, False]):
             type_random_base64_char()
         else:
             move_cursor_randomly()
@@ -38,22 +38,21 @@ def type_or_move_for_duration(duration_in_minutes):
 # Main function to handle the command-line input and timing logic
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Control how long the script types random Base64 chars.")
-    
+    parser = argparse.ArgumentParser(description="Move mouse randomly to keep system active. Optionally enable random keystrokes.")
+
     # Add positional arguments for time durations
-    parser.add_argument('durations', type=int, nargs='+', help='Durations in minutes for typing or pausing. Example: "30 10 20"')
-    
+    parser.add_argument('durations', type=int, nargs='+', help='Durations in minutes for activity or pausing. Example: "30 10 20"')
+    parser.add_argument('-k', '--keystroke', action='store_true', help='Enable random Base64 keystrokes (default: mouse movement only)')
+
     args = parser.parse_args()
 
     # Process each duration sequentially
     for index, duration in enumerate(args.durations):
         if index % 2 == 0:
-            # Typing duration
-            # print(f"Typing for {duration} minute(s)...")
-            type_or_move_for_duration(duration)
+            # Activity duration
+            type_or_move_for_duration(duration, enable_keystroke=args.keystroke)
         else:
             # Pausing duration
-            # print(f"Pausing for {duration} minute(s)...")
             time.sleep(duration * 60)
 
 if __name__ == "__main__":
