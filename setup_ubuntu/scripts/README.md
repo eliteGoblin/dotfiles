@@ -27,3 +27,24 @@ Utility scripts for Ubuntu VM setup and troubleshooting.
 - Icons showing as blocks/squares in nvim over SSH
 - Font rendering issues in terminal applications
 - After setting up new Ubuntu VM or changing terminal fonts
+
+### setup_time_sync.sh
+**Purpose**: Configure NTP time synchronization on Ubuntu VM
+
+**Usage** (run from macOS):
+```bash
+scp ~/.dotfiles/setup_ubuntu/scripts/setup_time_sync.sh ubuntu:~
+ssh ubuntu 'chmod +x ~/setup_time_sync.sh && ~/setup_time_sync.sh'
+```
+
+**What it does**:
+- Enables NTP via timedatectl
+- Enables and starts systemd-timesyncd service
+- Ensures service starts automatically on boot
+- Verifies time sync is working
+
+**When to use**:
+- After creating a new Ubuntu VM
+- If `timedatectl status` shows "NTP service: inactive"
+- If time drifts after suspend/resume
+- If SSL/TLS connections fail due to time mismatch

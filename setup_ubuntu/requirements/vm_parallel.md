@@ -71,6 +71,15 @@ prlctl set "Ubuntu 24.04.3 ARM64" --time-sync on
 ```
 
 ### 2. Configure NTP Service (on Ubuntu VM)
+
+**Option A: Use the setup script (recommended)**
+```bash
+# Copy script to VM and run it
+scp ~/.dotfiles/setup_ubuntu/scripts/setup_time_sync.sh ubuntu:~
+ssh ubuntu 'chmod +x ~/setup_time_sync.sh && ~/setup_time_sync.sh'
+```
+
+**Option B: Manual setup**
 ```bash
 # On Ubuntu VM - enable systemd-timesyncd
 sudo timedatectl set-ntp true
@@ -86,6 +95,9 @@ timedatectl status
 timedatectl timesync-status
 # Should show: "Server: ... (ntp.ubuntu.com)"
 ```
+
+**IMPORTANT**: The `systemctl enable` command is critical - without it, the service
+won't start automatically after reboot, and time will drift after suspend/resume.
 
 ### 3. Verify Sync After Suspend/Resume
 ```bash
