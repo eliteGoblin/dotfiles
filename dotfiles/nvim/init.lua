@@ -199,7 +199,9 @@ require("lazy").setup({
           -- Code actions
           vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
           vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
-          vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format code" }))
+          vim.keymap.set("n", "<leader>f", function()
+            require("conform").format({ async = true, lsp_fallback = true })
+          end, vim.tbl_extend("force", opts, { desc = "Format code" }))
 
           -- Diagnostics
           vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, vim.tbl_extend("force", opts, { desc = "Previous diagnostic" }))
@@ -276,6 +278,30 @@ require("lazy").setup({
     end,
   },
 
+  -- Formatter (Prettier, etc.)
+  {
+    "stevearc/conform.nvim",
+    config = function()
+      require("conform").setup({
+        formatters_by_ft = {
+          javascript = { "prettier" },
+          javascriptreact = { "prettier" },
+          typescript = { "prettier" },
+          typescriptreact = { "prettier" },
+          json = { "prettier" },
+          jsonc = { "prettier" },
+          html = { "prettier" },
+          css = { "prettier" },
+          scss = { "prettier" },
+          markdown = { "prettier" },
+          yaml = { "prettier" },
+          python = { "black" },
+          lua = { "stylua" },
+        },
+      })
+    end,
+  },
+
   -- Auto pairs
   {
     "windwp/nvim-autopairs",
@@ -338,6 +364,11 @@ map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
 
 -- LSP diagnostics
 map("n", "gl", vim.diagnostic.open_float, { desc = "Show diagnostic" })
+
+-- Global format keybinding (works even without LSP attached)
+map("n", "<leader>F", function()
+  require("conform").format({ async = true, lsp_fallback = true })
+end, { desc = "Format file with Prettier/formatter" })
 
 -- Copy file path keybindings (use Y/gy in nvim-tree for folder paths)
 map("n", "<leader>cpf", function()
