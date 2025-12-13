@@ -209,12 +209,9 @@ require("lazy").setup({
         end,
       })
 
-      -- Setup LSP servers - mason-lspconfig will auto-configure them
-      -- The LspAttach autocmd above will handle keybindings
-      local lspconfig = require("lspconfig")
-      lspconfig.ts_ls.setup({})
-      lspconfig.pyright.setup({})
-      lspconfig.lua_ls.setup({})
+      -- Enable LSP servers (nvim 0.11+ native API)
+      -- nvim-lspconfig provides configs under lsp/ directory
+      vim.lsp.enable({ "ts_ls", "pyright", "lua_ls" })
     end,
   },
 
