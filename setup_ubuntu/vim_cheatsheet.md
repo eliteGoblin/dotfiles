@@ -271,6 +271,46 @@ const obj = { name: 'test', value: 42 };
 | `:s/old/new/g` | Replace in current line |
 | `:'<,'>s/old/new/g` | Replace in visual selection |
 
+## External Commands (Filter)
+
+The `!` command pipes text through external commands - one of vim's most powerful features.
+
+### How It Works
+1. Select text (or use motion)
+2. `!{command}` sends selection as **stdin** to command
+3. Command's **stdout** replaces the selection
+
+### Filter Commands
+| Key | Action |
+|-----|--------|
+| `!!` | Filter current line |
+| `!}` | Filter to end of paragraph |
+| `!G` | Filter from cursor to end of file |
+| `V` then `!cmd` | Filter selected lines |
+| `:'<,'>!cmd` | Filter visual selection (auto-inserted) |
+
+### Practical Examples
+| Command | Action |
+|---------|--------|
+| `:'<,'>!jq .` | Format JSON (select first) |
+| `:'<,'>!/usr/bin/jq .` | Format JSON (full path if needed) |
+| `:%!jq .` | Format entire file as JSON |
+| `:'<,'>!sort` | Sort selected lines |
+| `:'<,'>!sort -u` | Sort and remove duplicates |
+| `:'<,'>!uniq` | Remove consecutive duplicate lines |
+| `:'<,'>!column -t` | Align columns (space-separated) |
+| `:'<,'>!base64 -d` | Decode base64 |
+| `:'<,'>!python3` | Run selection as Python, replace with output |
+| `!!date` | Replace current line with date output |
+
+### JSON Formatting Workflow
+1. `V` - enter visual line mode
+2. Select JSON lines with `j`/`k`
+3. Type `!jq .` (vim auto-adds `:'<,'>`)
+4. Press Enter
+
+**Note**: If `jq` not found, use full path: `!/usr/bin/jq .`
+
 ## Macros
 
 | Key | Action |
@@ -447,9 +487,6 @@ const obj = { name: 'test', value: 42 };
 
 ### Delete empty lines
 - `:g/^$/d` - Delete all empty lines
-
-### Format JSON
-- `:%!jq .` - Format entire file as JSON (requires jq)
 
 ### Sort lines
 - `:sort` - Sort selected lines

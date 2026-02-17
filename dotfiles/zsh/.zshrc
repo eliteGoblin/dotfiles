@@ -63,3 +63,4 @@ done
 export TERM=xterm-256color
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
+export GH_TOKEN=$(grep FRANK_GH_TOKEN_ADMIN ~/.creds/personal.sh | cut -d= -f2)

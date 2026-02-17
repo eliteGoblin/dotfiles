@@ -40,7 +40,8 @@ UBUNTU_MCP_CONFIG="/home/parallels/.claude.json"  # Root-level mcpServers in ~/.
 # Using simple hostnames without TLD suffix (like 'myubuntu') ensures /etc/hosts is always checked first.
 HOSTS_ENTRIES=("myubuntu")  # Hostnames to update in /etc/hosts (on macOS)
 UBUNTU_HOSTNAME_FOR_MAC="mymac"  # Hostname Ubuntu uses to reach macOS
-NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface
+NETWORK_INTERFACE="enp0s5"  # Ubuntu VM network interface (ip addr)
+NMCLI_CONNECTION=""  # nmcli connection name (auto-detected if empty)
 PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
 UBUNTU_MCP_CONFIG="/home/parallels/.claude.json"  # Ubuntu MCP config file
 MCP_PORT="9223"  # Chrome DevTools port exposed via socat
@@ -109,10 +110,13 @@ get_vm_ip() {
                 # Second attempt: cycle the network connection via nmcli
                 print_info "Attempting auto-recovery (2/2): cycling network connection..."
 
-                # nmcli connection down may fail if not managed, but up should work
-                "$PRLCTL" exec "$VM_NAME" sudo nmcli connection down "$NETWORK_INTERFACE" 2>/dev/null || true
+                # nmcli uses connection names (e.g. "netplan-enp0s5"), not interface names
+                local nmcli_conn
+                nmcli_conn=$(get_nmcli_connection_name)
+
+                "$PRLCTL" exec "$VM_NAME" sudo nmcli connection down "$nmcli_conn" 2>/dev/null || true
                 sleep 2
-                if "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$NETWORK_INTERFACE" 2>/dev/null; then
+                if "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$nmcli_conn" 2>/dev/null; then
                     print_info "Waiting for DHCP lease..."
                     sleep 5
                 else
@@ -127,9 +131,11 @@ get_vm_ip() {
                 print_info "  - The VM's DHCP client isn't working properly"
                 print_info "  - The network interface name changed"
                 print_info ""
+                local nmcli_conn_hint
+                nmcli_conn_hint=$(get_nmcli_connection_name 2>/dev/null || echo "$NETWORK_INTERFACE")
                 print_info "Try manually:"
-                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection down $NETWORK_INTERFACE"
-                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection up $NETWORK_INTERFACE"
+                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection down $nmcli_conn_hint"
+                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection up $nmcli_conn_hint"
                 exit 1
                 ;;
         esac
@@ -179,6 +185,73 @@ get_macos_ip() {
     echo "$mac_ip"
 }
 
+# Get the nmcli connection name for the network interface
+get_nmcli_connection_name() {
+    if [[ -n "$NMCLI_CONNECTION" ]]; then
+        echo "$NMCLI_CONNECTION"
+        return 0
+    fi
+
+    # Auto-detect: find the nmcli connection bound to NETWORK_INTERFACE
+    local conn_name
+    conn_name=$("$PRLCTL" exec "$VM_NAME" nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep ":${NETWORK_INTERFACE}$" | cut -d: -f1 || true)
+
+    if [[ -n "$conn_name" ]]; then
+        echo "$conn_name"
+    else
+        # Fallback to interface name
+        echo "$NETWORK_INTERFACE"
+    fi
+}
+
+# Ensure VM is reachable from macOS (ping check with suspend/resume recovery)
+ensure_vm_reachable() {
+    local vm_ip=$1
+
+    if ping -c 1 -W 3 "$vm_ip" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    print_warning "VM has IP $vm_ip but is not reachable from macOS"
+    print_info "This usually happens when the network changed and the Parallels bridge is stale"
+    print_info "Attempting recovery: suspend and resume VM to reinitialize network bridge..."
+
+    if ! "$PRLCTL" suspend "$VM_NAME" 2>&1; then
+        print_error "Failed to suspend VM"
+        exit 1
+    fi
+
+    print_info "VM suspended. Resuming..."
+
+    if ! "$PRLCTL" resume "$VM_NAME" 2>&1; then
+        print_error "Failed to resume VM"
+        exit 1
+    fi
+
+    # Wait for VM to fully resume and get network
+    print_info "Waiting for VM to resume and acquire network..."
+    local wait_count=0
+    local max_wait=12  # 12 * 5s = 60s max
+    while [[ $wait_count -lt $max_wait ]]; do
+        sleep 5
+        vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
+
+        if [[ -n "$vm_ip" ]] && ping -c 1 -W 3 "$vm_ip" >/dev/null 2>&1; then
+            print_success "✓ VM reachable at $vm_ip after suspend/resume"
+            # Return the (possibly new) IP via stdout
+            echo "$vm_ip"
+            return 0
+        fi
+
+        ((wait_count++))
+        print_info "  Waiting... ($((wait_count * 5))s)"
+    done
+
+    print_error "VM still not reachable after suspend/resume"
+    print_info "Try manually checking Parallels network configuration"
+    exit 1
+}
+
 # Get Ubuntu sudo password
 get_ubuntu_sudo_password() {
     # First try environment variable
@@ -216,7 +289,7 @@ update_ubuntu_hosts_file() {
     # Remove old entries for mymac and add new one (via SSH)
     local update_cmd="echo '$sudo_pass' | sudo -S sed -i '/^[0-9.][0-9.]*[[:space:]][[:space:]]*${UBUNTU_HOSTNAME_FOR_MAC}$/d' /etc/hosts && echo '$mac_ip $UBUNTU_HOSTNAME_FOR_MAC' | sudo -S tee -a /etc/hosts >/dev/null"
 
-    if ssh "$SSH_HOST_ENTRY" "$update_cmd" 2>/dev/null; then
+    if ssh -o ConnectTimeout=10 "$SSH_HOST_ENTRY" "$update_cmd" 2>/dev/null; then
         print_success "✓ Ubuntu's /etc/hosts updated with $UBUNTU_HOSTNAME_FOR_MAC → $mac_ip"
     else
         print_error "Failed to update Ubuntu's /etc/hosts"
@@ -592,6 +665,16 @@ cmd_sync() {
     print_info "Detected VM IP: $vm_ip"
     print_info "Detected macOS IP: $mac_ip"
     echo
+
+    # Verify VM is reachable (suspend/resume if Parallels bridge is stale)
+    local new_ip
+    if new_ip=$(ensure_vm_reachable "$vm_ip"); then
+        # VM might have gotten a new IP after suspend/resume
+        if [[ -n "$new_ip" && "$new_ip" != "$vm_ip" ]]; then
+            print_info "VM IP changed after recovery: $vm_ip → $new_ip"
+            vm_ip="$new_ip"
+        fi
+    fi
 
     # Ensure Chrome MCP is running (required for MCP connectivity)
     ensure_chrome_mcp_running
