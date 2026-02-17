@@ -194,6 +194,30 @@ See [conform.nvim docs](https://github.com/stevearc/conform.nvim) for configurat
 
 ---
 
+## WSL Clipboard Support (WSL Only)
+
+When running Neovim inside WSL, the system clipboard (`+` register) doesn't connect to the Windows clipboard by default. Install `win32yank.exe` to bridge them.
+
+**Note**: The nvim config (`init.lua`) already has a `vim.fn.has("wsl")` guard, so the clipboard config only activates on WSL and is safe on native Ubuntu/macOS.
+
+### Installation
+```bash
+# Only needed on WSL, skip on native Ubuntu or macOS
+curl -sLo /tmp/win32yank.zip https://github.com/equalsraf/win32yank/releases/download/v0.1.1/win32yank-x64.zip
+unzip -o /tmp/win32yank.zip -d /tmp/win32yank
+cp /tmp/win32yank/win32yank.exe ~/.local/bin/win32yank.exe
+chmod +x ~/.local/bin/win32yank.exe
+```
+
+### How it works
+WSL can run `.exe` files natively. Neovim calls `win32yank.exe` to read/write the Windows clipboard. The `init.lua` config sets this up automatically when WSL is detected.
+
+### Verification
+1. Open nvim, yank text with `"+y`, paste in a Windows app with `Ctrl+V`
+2. Copy in Windows, paste in nvim with `"+p`
+
+---
+
 ## Font & Icon Rendering
 
 ### Font Requirement

@@ -15,3 +15,6 @@ Session.vim
 
 # Claude work notes (local context only)
 setup_ubuntu/claude_worknotes/
+
+# Work-specific configs (not committed to dotfiles repo)
+dotfiles/zsh/.my_zshrc/work/
