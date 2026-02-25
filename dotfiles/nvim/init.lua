@@ -377,7 +377,9 @@ require("lazy").setup({
     keys = {
       { "<leader>mr", "<cmd>RenderMarkdown toggle<cr>", desc = "Toggle Markdown Render" },
     },
-    opts = {},
+    opts = {
+      debounce = 200, -- reduce treesitter race condition on nvim 0.12-dev
+    },
   },
 })
 
