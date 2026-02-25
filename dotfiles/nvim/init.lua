@@ -342,6 +342,8 @@ require("lazy").setup({
       { "<C-`>", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal" },
       { "<leader>t", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal" },
       { "<C-t>", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal (alternative)" },
+      { "<leader>tv", "<cmd>ToggleTerm direction=vertical<cr>", desc = "Toggle terminal (vertical)" },
+      { "<leader>th", "<cmd>ToggleTerm direction=horizontal<cr>", desc = "Toggle terminal (horizontal)" },
     },
     config = function()
       require("toggleterm").setup({
