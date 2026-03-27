@@ -454,9 +454,9 @@ The `!` command pipes text through external commands - one of vim's most powerfu
 
 | Command | Action |
 |---------|--------|
-| `:source $MYVIMRC` | Reload init.lua without quitting nvim |
-| `:Lazy sync` | Sync plugins after config change (install/update/clean) |
+| `:Lazy sync` | Sync plugins (install/update/clean) |
 | `:Lazy` | Open Lazy plugin manager UI |
+| Restart nvim | Required to reload init.lua (lazy.nvim doesn't support `:source`) |
 
 ## Tips & Tricks
 
