@@ -340,10 +340,8 @@ require("lazy").setup({
     "akinsho/toggleterm.nvim",
     keys = {
       { "<C-`>", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal" },
-      { "<leader>t", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal" },
+      { "<leader>tt", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal" },
       { "<C-t>", "<cmd>ToggleTerm<cr>", desc = "Toggle terminal (alternative)" },
-      { "<leader>tv", "<cmd>ToggleTerm direction=vertical<cr>", desc = "Toggle terminal (vertical)" },
-      { "<leader>th", "<cmd>ToggleTerm direction=horizontal<cr>", desc = "Toggle terminal (horizontal)" },
     },
     config = function()
       require("toggleterm").setup({
@@ -391,6 +389,10 @@ map("n", "<leader>qq", "<cmd>qa<cr>", { desc = "Quit all safely (prompts for uns
 map("n", "<leader>qQ", "<cmd>qa!<cr>", { desc = "Force quit all (discards changes)" })
 map("n", "<leader>w", "<cmd>w<cr>",   { desc = "Save" })
 
+-- Terminal splits (native)
+map("n", "<leader>th", "<cmd>split | terminal<cr>", { desc = "Terminal horizontal split" })
+map("n", "<leader>tv", "<cmd>vsplit | terminal<cr>", { desc = "Terminal vertical split" })
+
 -- Keep visual selection when indenting
 map("v", "<", "<gv", { desc = "Indent left and reselect" })
 map("v", ">", ">gv", { desc = "Indent right and reselect" })
@@ -423,7 +425,7 @@ map("n", "<leader>cpn", function()
 end, { desc = "Copy file name only" })
 
 -- Terminal keymaps
-map("t", "<esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
+map("t", "<esc><esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode (double-ESC)" })
 map("t", "<C-h>", [[<C-\><C-n><C-w>h]], { desc = "Go to left window" })
 map("t", "<C-j>", [[<C-\><C-n><C-w>j]], { desc = "Go to lower window" })
 map("t", "<C-k>", [[<C-\><C-n><C-w>k]], { desc = "Go to upper window" })
