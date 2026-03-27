@@ -402,7 +402,8 @@ The `!` command pipes text through external commands - one of vim's most powerfu
 | Key | Action |
 |-----|--------|
 | `Ctrl+t` | Toggle terminal |
-| `Esc` (in term) | Exit terminal mode to normal |
+| `Esc Esc` (in term) | Exit terminal mode to normal (double-ESC) |
+| `Esc` (in term) | Pass ESC to terminal app (e.g., Claude Code, nested vim) |
 | `Ctrl+h/j/k/l` (in term) | Navigate to other windows |
 
 ### General
@@ -418,7 +419,8 @@ The `!` command pipes text through external commands - one of vim's most powerfu
 ### Markdown
 | Key | Action |
 |-----|--------|
-| `Space+mr` | Toggle markdown rendering (render-markdown.nvim) |
+| `Space+mr` | Toggle markdown rendering in-buffer (render-markdown.nvim) |
+| `Space+mp` | Toggle markdown preview in browser with mermaid/KaTeX (markdown-preview.nvim) |
 
 ### Commenting (Comment.nvim)
 | Key | Action |
@@ -447,6 +449,14 @@ The `!` command pipes text through external commands - one of vim's most powerfu
 | `u` | Update package |
 | `X` | Uninstall package |
 | `/` | Search packages |
+
+## Config Management
+
+| Command | Action |
+|---------|--------|
+| `:source $MYVIMRC` | Reload init.lua without quitting nvim |
+| `:Lazy sync` | Sync plugins after config change (install/update/clean) |
+| `:Lazy` | Open Lazy plugin manager UI |
 
 ## Tips & Tricks
 

@@ -381,6 +381,29 @@ require("lazy").setup({
       debounce = 200, -- reduce treesitter race condition on nvim 0.12-dev
     },
   },
+
+  -- Markdown browser preview with mermaid/KaTeX support
+  {
+    "iamcco/markdown-preview.nvim",
+    cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
+    ft = { "markdown" },
+    build = function() vim.fn["mkdp#util#install"]() end,
+    keys = {
+      { "<leader>mp", "<cmd>MarkdownPreviewToggle<cr>", desc = "Toggle Markdown Preview (browser)" },
+    },
+    init = function()
+      vim.g.mkdp_auto_close = 1
+      -- WSL: open browser via cmd.exe since wslview may not work from nvim context
+      if vim.fn.has("wsl") == 1 then
+        vim.g.mkdp_browserfunc = "OpenBrowserWSL"
+        vim.cmd([[
+          function! OpenBrowserWSL(url)
+            execute 'silent !cmd.exe /c start ' . shellescape(a:url, 1)
+          endfunction
+        ]])
+      end
+    end,
+  },
 })
 
 -- Keymaps quality-of-life
