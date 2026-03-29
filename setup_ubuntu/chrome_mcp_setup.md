@@ -1,216 +1,306 @@
-# Chrome MCP Setup and Troubleshooting
+# Chrome MCP Cross-Machine Setup
 
 ## Overview
-Enable Ubuntu VM to access Chrome DevTools on macOS for Claude MCP (Model Context Protocol) integration.
+
+This documents the Chrome MCP (Model Context Protocol) pattern for running Claude Code on an Ubuntu VM with browser automation powered by Chrome running on macOS. This enables Claude to control a real Chrome browser on the Mac from inside the VM.
 
 ## Architecture
+
 ```
-┌──────────────────────────────────────────────────────┐
-│ macOS Host (172.20.10.2 on hotspot)                  │
-│                                                       │
-│  Chrome + DevTools: 127.0.0.1:9222                  │
-│  socat proxy: 172.20.10.2:9223 → 127.0.0.1:9222     │
-│  /etc/hosts: 172.20.10.3 myubuntu (Ubuntu VM)       │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ macOS Host (e.g. 192.168.4.25)                               │
+│                                                               │
+│  Chrome --remote-debugging-port=9222                         │
+│    └─ Listens on 127.0.0.1:9222 (localhost only)             │
+│    └─ Profile: ~/.chrome-mcp-profile (separate from main)    │
+│                                                               │
+│  socat proxy                                                  │
+│    └─ LAN_IP:9223 → 127.0.0.1:9222                          │
+│    └─ Exposes Chrome DevTools to LAN                         │
+│                                                               │
+│  Scripts:                                                     │
+│    ~/.local/bin/run_chrome_mcp  (Chrome + socat lifecycle)   │
+│    ~/.local/bin/dev_sync        (IP sync, MCP config update) │
+└──────────────────────────────────────────────────────────────┘
                        │
-                Bridge Network
+               Parallels Bridge Network
                        │
-┌──────────────────────────────────────────────────────┐
-│ Ubuntu VM (172.20.10.3 on hotspot)                   │
-│                                                       │
-│  Claude Desktop + MCP                                │
-│  Connects to: http://myubuntu:9223                   │
-│  /etc/hosts: 172.20.10.2 myubuntu (macOS)           │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Ubuntu VM (e.g. 192.168.4.27)                                │
+│                                                               │
+│  Claude Code CLI                                              │
+│    └─ MCP server: chrome-devtools                            │
+│    └─ Connects to: http://<MAC_IP>:9223                      │
+│                                                               │
+│  ~/.claude.json (mcpServers config)                          │
+│  ~/.local/bin/npx-mcp (NPX wrapper for corp registry bypass)│
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Network IP Changes
-IPs change when switching networks:
+**Data flow**: Claude Code (Ubuntu) → chrome-devtools-mcp (NPX) → HTTP → socat (Mac LAN:9223) → Chrome DevTools (Mac 127.0.0.1:9222)
 
-| Network       | macOS IP      | Ubuntu VM IP  |
-|---------------|---------------|---------------|
-| Home WiFi     | 192.168.4.2   | 192.168.4.3   |
-| Phone Hotspot | 172.20.10.2   | 172.20.10.3   |
-| Office WiFi   | 10.x.x.2      | 10.x.x.3      |
+## New Machine Setup
 
-**Both machines need `/etc/hosts` updated after network changes.**
+### Prerequisites
 
-## Setup Commands
+- macOS with Parallels Desktop and an Ubuntu VM
+- Both machines on the same bridge network (Parallels handles this)
+- SSH access from Mac to Ubuntu VM configured
 
-### One-Command Setup (from macOS)
-
-After switching networks, run **one command** on macOS that does everything:
+### Step 1: Mac — Install dependencies
 
 ```bash
-# 1. Start Chrome MCP first (if not running)
-run_chrome_mcp start
+# socat (for proxying Chrome DevTools to LAN)
+brew install socat
 
-# 2. Sync IPs bidirectionally (macOS ↔ Ubuntu)
-sync_mac_ip sync
+# Google Chrome (if not already installed)
+# Download from https://www.google.com/chrome/
 ```
 
-This automatically:
-- ✅ Updates macOS `~/.ssh/config` (ubuntu hostname)
-- ✅ Updates macOS `/etc/hosts` (myubuntu → Ubuntu IP)
-- ✅ Updates Ubuntu `/etc/hosts` (mymac → macOS IP) **via SSH**
-- ✅ Verifies Chrome MCP is running
-- ✅ Tests Chrome MCP connectivity from Ubuntu
-- ✅ Flushes DNS cache
-
-### Check Status
+### Step 2: Mac — Install run_chrome_mcp script
 
 ```bash
-run_chrome_mcp status    # Check Chrome MCP
-sync_mac_ip status       # Check IP sync (both directions)
-```
-
-`sync_mac_ip status` shows:
-- macOS → Ubuntu: SSH config and /etc/hosts
-- Ubuntu → macOS: /etc/hosts and Chrome MCP accessibility
-
-## Troubleshooting
-
-### Issue: "Could not resolve host: mymac" on Ubuntu
-
-**Cause**: Ubuntu's `/etc/hosts` doesn't have macOS IP
-
-**Solution**:
-```bash
-# On macOS - run sync to update Ubuntu's /etc/hosts
-sync_mac_ip sync
-
-# OR manually on Ubuntu (if SSH isn't working)
-echo '172.20.10.2 mymac' | sudo tee -a /etc/hosts
+# From the dotfiles repo
+cp util/run_chrome_mcp ~/.local/bin/run_chrome_mcp
+chmod +x ~/.local/bin/run_chrome_mcp
 
 # Verify
-curl http://mymac:9223/json/version
+run_chrome_mcp help
 ```
 
-### Issue: "Connection refused" from Ubuntu
+The script manages:
+- Chrome instance with `--remote-debugging-port=9222` using a dedicated profile (`~/.chrome-mcp-profile`)
+- socat proxy binding to `LAN_IP:9223` forwarding to `127.0.0.1:9222`
+- PID tracking in `~/.chrome-mcp/` with health checks
 
-**Causes**:
-1. Chrome MCP not running on macOS
-2. macOS firewall blocking connections
-3. Wrong IP in Ubuntu's `/etc/hosts`
-
-**Solutions**:
+Commands:
 ```bash
-# On macOS
-run_chrome_mcp status  # Check if running
-run_chrome_mcp start   # Start if not running
-
-# On Ubuntu
-curl http://172.20.10.2:9223/json/version  # Test with IP directly
+run_chrome_mcp start     # Start Chrome + socat
+run_chrome_mcp stop      # Stop both
+run_chrome_mcp status    # Health check
+run_chrome_mcp restart   # Stop + start (use after network change)
 ```
 
-### Issue: socat listening on old IP (192.x instead of 172.x)
-
-**Cause**: Network changed but Chrome MCP not restarted
-
-**Solution**:
-```bash
-# On macOS
-run_chrome_mcp stop
-run_chrome_mcp start
-
-# Verify new IP
-run_chrome_mcp status | grep "172.20.10.2:9223"
-```
-
-### Issue: "Cannot ping mymac" on Ubuntu
-
-**Cause**: macOS firewall blocks ICMP ping (this is normal)
-
-**Solution**: Use HTTP test instead of ping:
-```bash
-# This will FAIL (expected)
-ping mymac
-
-# This should WORK
-curl http://mymac:9223/json/version
-```
-
-### Issue: MCP shows old IP in logs
-
-**Cause**: Need to sync IPs after network change
-
-**Solution** (simple, one command):
-```bash
-# On macOS - restart Chrome MCP then sync
-run_chrome_mcp stop
-run_chrome_mcp start
-sync_mac_ip sync
-
-# That's it! sync_mac_ip updates Ubuntu's /etc/hosts automatically
-```
-
-## Quick Reference
-
-### After switching networks (WiFi ↔ hotspot ↔ office):
+### Step 3: Mac — Install dev_sync script
 
 ```bash
-# On macOS - TWO commands, that's it!
-run_chrome_mcp stop && run_chrome_mcp start
-sync_mac_ip sync
-
-# Everything is now configured automatically
-# - macOS knows Ubuntu's new IP
-# - Ubuntu knows macOS's new IP
-# - Chrome MCP connectivity verified
+cp util/dev_sync ~/.local/bin/dev_sync
+chmod +x ~/.local/bin/dev_sync
 ```
 
-### Verification checklist:
+Edit the config section at the top of `dev_sync` to match your environment:
+```bash
+VM_NAME="Ubuntu"           # Parallels VM name
+VM_USER="parallels"        # Ubuntu username
+MAC_HOSTNAME="mymac"       # Hostname for Mac in Ubuntu's /etc/hosts
+UBUNTU_HOSTNAME="myubuntu" # Hostname for Ubuntu in Mac's /etc/hosts
+SSH_CONFIG_HOST="ubuntu"   # SSH config host alias
+```
+
+Also configure:
+```bash
+# In ~/.creds/local.sh (sourced by dev_sync)
+export UBUNTU_SUDO_PASSWORD="your-ubuntu-password"
+```
+
+### Step 4: Ubuntu VM — Install Node.js
 
 ```bash
-# On macOS - check everything
-run_chrome_mcp status   # Should show "HEALTHY"
-sync_mac_ip status      # Should show "All systems in sync"
+# Install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+
+# Install Node 22+
+nvm install 22
+nvm use 22
+node --version  # Should be v22.x
 ```
 
-This verifies:
-- [ ] macOS SSH config has Ubuntu IP
-- [ ] macOS /etc/hosts has `myubuntu` → Ubuntu IP
-- [ ] Ubuntu /etc/hosts has `mymac` → macOS IP
-- [ ] Ubuntu can reach Chrome MCP at `http://mymac:9223`
+### Step 5: Ubuntu VM — Create npx-mcp wrapper
+
+If your corporate network blocks `registry.npmjs.org`, create a wrapper that uses the public registry:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/npx-mcp << 'EOF'
+#!/bin/bash
+export PATH="$HOME/.nvm/versions/node/v22.20.0/bin:$PATH"
+export npm_config_registry="https://registry.npmjs.org/"
+exec npx "$@"
+EOF
+chmod +x ~/.local/bin/npx-mcp
+```
+
+Update the Node.js path if your version differs (`ls ~/.nvm/versions/node/`).
+
+If your network doesn't block npm, you can skip this and use `npx` directly in the MCP config.
+
+### Step 6: Ubuntu VM — Configure Claude MCP
+
+Add the `chrome-devtools` MCP server to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "/home/parallels/.local/bin/npx-mcp",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--browserUrl=http://<MAC_IP>:9223"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+Replace `<MAC_IP>` with the Mac's current LAN IP. The `dev_sync` script will keep this updated automatically when IPs change.
+
+If you skipped the npx-mcp wrapper (Step 5), use `"command": "npx"` instead.
+
+### Step 7: Start everything
+
+```bash
+# On Mac:
+run_chrome_mcp start   # Start Chrome + socat proxy
+dev_sync sync          # Sync IPs and verify MCP connectivity
+
+# Verify:
+run_chrome_mcp status  # Should show HEALTHY
+dev_sync status        # Should show Chrome MCP accessible
+```
+
+### Step 8: Test from Ubuntu
+
+```bash
+# On Ubuntu VM:
+curl http://<MAC_IP>:9223/json/version   # Should return Chrome version JSON
+
+# Start Claude Code - it will auto-connect to Chrome MCP
+claude
+```
+
+## Daily Workflow
+
+### After Mac sleep/wake or network change
+
+```bash
+# On Mac:
+run_chrome_mcp restart   # Rebind socat to new LAN IP
+dev_sync sync            # Sync IPs, update Ubuntu MCP config, verify
+```
+
+### If VM becomes unreachable after Mac sleep
+
+`dev_sync sync` handles this automatically — it detects unreachable VM and performs a Parallels suspend/resume to re-establish the bridge network.
+
+### Check status
+
+```bash
+run_chrome_mcp status    # Chrome + socat health
+dev_sync status          # Full status: IPs, SSH, Chrome MCP, services
+```
+
+## How dev_sync Keeps It Working
+
+The `dev_sync` script handles all the moving parts when IPs change:
+
+1. Detects Mac LAN IP and Ubuntu VM IP (via `prlctl`)
+2. Updates Mac's `~/.ssh/config` with Ubuntu's IP
+3. Updates Mac's `/etc/hosts` (`myubuntu` → Ubuntu IP)
+4. Updates Ubuntu's `/etc/hosts` (`mymac` → Mac IP) via SSH
+5. Updates Ubuntu's `~/.claude.json` MCP config with Mac's current IP
+6. Verifies Chrome MCP is reachable from Ubuntu
+7. Auto-recovers unreachable VM via suspend/resume
 
 ## File Locations
 
 ### macOS
-- `~/.local/bin/run_chrome_mcp` - Chrome MCP management script
-- `~/.local/bin/sync_mac_ip` - Bidirectional IP sync script
-- `~/.ssh/config` - SSH config (auto-updated by sync_mac_ip)
-- `/etc/hosts` - Hostname resolution (auto-updated by sync_mac_ip)
-- `~/.chrome-mcp-profile` - Chrome DevTools profile
-- `~/.creds/local.sh` - Contains `UBUNTU_SUDO_PASSWORD` env var
+| File | Purpose |
+|------|---------|
+| `~/.local/bin/run_chrome_mcp` | Chrome + socat lifecycle management |
+| `~/.local/bin/dev_sync` | IP sync, MCP config update, VM recovery |
+| `~/.chrome-mcp/` | State dir (PIDs, logs) |
+| `~/.chrome-mcp-profile/` | Dedicated Chrome profile for MCP |
+| `~/.ssh/config` | SSH alias for Ubuntu VM (auto-updated) |
+| `/etc/hosts` | `myubuntu` hostname (auto-updated) |
+| `~/.creds/local.sh` | `UBUNTU_SUDO_PASSWORD` env var |
 
-### Ubuntu
-- `/etc/hosts` - Hostname resolution (auto-updated by sync_mac_ip via SSH)
+### Ubuntu VM
+| File | Purpose |
+|------|---------|
+| `~/.claude.json` | MCP servers config (auto-updated by dev_sync) |
+| `~/.local/bin/npx-mcp` | NPX wrapper (bypasses corp registry) |
+| `/etc/hosts` | `mymac` hostname (auto-updated by dev_sync) |
 
-## Hostnames Explained
+## Troubleshooting
 
-- **myubuntu**: On macOS, points to Ubuntu VM (172.20.10.3)
-- **mymac**: On Ubuntu, points to macOS host (172.20.10.2)
+### "Connection refused" from Ubuntu to Mac:9223
 
-This makes it clear which machine you're referring to:
+1. Check Chrome MCP is running: `run_chrome_mcp status`
+2. If UNHEALTHY, restart: `run_chrome_mcp restart`
+3. Verify socat is bound to current LAN IP (not old one)
+
+### socat bound to old IP after network change
+
 ```bash
-# From macOS
-ssh ubuntu               # or ssh parallels@myubuntu
-
-# From Ubuntu
-curl http://mymac:9223   # Access Chrome MCP on macOS
+run_chrome_mcp restart   # Automatically rebinds to current LAN IP
 ```
 
-## Requirements
+### Orphaned socat process (PID file lost)
 
-For `sync_mac_ip` to work, you need:
+If `run_chrome_mcp stop` can't find the process but port 9223 is still in use:
 
-1. **Chrome MCP running**: `run_chrome_mcp start`
-2. **SSH access to Ubuntu**: `ssh ubuntu` must work
-3. **Ubuntu sudo password**: Set `UBUNTU_SUDO_PASSWORD` env var in `~/.creds/local.sh`
-4. **Parallels Tools**: Installed on Ubuntu VM (for prlctl)
+```bash
+# Find the orphan
+lsof -i TCP:9223 -sTCP:LISTEN
 
-## Future Improvements
+# Kill it manually
+kill <PID>
 
-1. Add network change hooks to auto-run sync scripts
-2. Document Claude MCP configuration on Ubuntu
-3. Auto-start Chrome MCP if not running during sync
+# Then restart cleanly
+run_chrome_mcp start
+```
+
+### Ubuntu can't resolve `mymac` hostname
+
+```bash
+# On Mac - sync updates Ubuntu's /etc/hosts
+dev_sync sync
+```
+
+### MCP config has wrong IP in Ubuntu's ~/.claude.json
+
+```bash
+# On Mac - dev_sync updates the browserUrl in MCP config
+dev_sync sync
+```
+
+### VM unreachable after Mac sleep/wake
+
+```bash
+# dev_sync handles this automatically with suspend/resume recovery
+dev_sync sync
+
+# Or manually via prlctl
+prlctl suspend Ubuntu && prlctl resume Ubuntu
+```
+
+### macOS firewall blocks ping but HTTP works
+
+This is normal — macOS stealth mode blocks ICMP. Use HTTP to test:
+```bash
+# From Ubuntu - ping may fail (expected)
+ping mymac          # May timeout
+
+# HTTP works fine
+curl http://mymac:9223/json/version   # Should succeed
+```
+
+## Source Files in Dotfiles Repo
+
+- `util/run_chrome_mcp` — Mac-side Chrome + socat management script
+- `util/dev_sync` — Bidirectional IP sync and MCP config management
+- `util/requirements/run_chrome_mcp.md` — Original requirements spec
+- `setup_ubuntu/chrome_mcp_setup.md` — This document

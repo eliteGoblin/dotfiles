@@ -46,6 +46,9 @@ PRLCTL="/usr/local/bin/prlctl"  # Full path to prlctl
 UBUNTU_MCP_CONFIG="/home/parallels/.claude.json"  # Ubuntu MCP config file
 MCP_PORT="9223"  # Chrome DevTools port exposed via socat
 
+# Ubuntu VM services to monitor (name:port pairs, accessed via myubuntu:<port>)
+VM_SERVICES=("Flowise:3100")
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -205,8 +208,11 @@ get_nmcli_connection_name() {
 }
 
 # Ensure VM is reachable from macOS (ping check with suspend/resume recovery)
+# Sets VM_REACHABLE_IP to the (possibly new) VM IP after recovery
+VM_REACHABLE_IP=""
 ensure_vm_reachable() {
     local vm_ip=$1
+    VM_REACHABLE_IP="$vm_ip"
 
     if ping -c 1 -W 3 "$vm_ip" >/dev/null 2>&1; then
         return 0
@@ -216,17 +222,17 @@ ensure_vm_reachable() {
     print_info "This usually happens when the network changed and the Parallels bridge is stale"
     print_info "Attempting recovery: suspend and resume VM to reinitialize network bridge..."
 
-    if ! "$PRLCTL" suspend "$VM_NAME" 2>&1; then
+    "$PRLCTL" suspend "$VM_NAME" 2>&1 || {
         print_error "Failed to suspend VM"
-        exit 1
-    fi
+        return 1
+    }
 
     print_info "VM suspended. Resuming..."
 
-    if ! "$PRLCTL" resume "$VM_NAME" 2>&1; then
+    "$PRLCTL" resume "$VM_NAME" 2>&1 || {
         print_error "Failed to resume VM"
-        exit 1
-    fi
+        return 1
+    }
 
     # Wait for VM to fully resume and get network
     print_info "Waiting for VM to resume and acquire network..."
@@ -238,8 +244,7 @@ ensure_vm_reachable() {
 
         if [[ -n "$vm_ip" ]] && ping -c 1 -W 3 "$vm_ip" >/dev/null 2>&1; then
             print_success "✓ VM reachable at $vm_ip after suspend/resume"
-            # Return the (possibly new) IP via stdout
-            echo "$vm_ip"
+            VM_REACHABLE_IP="$vm_ip"
             return 0
         fi
 
@@ -249,7 +254,7 @@ ensure_vm_reachable() {
 
     print_error "VM still not reachable after suspend/resume"
     print_info "Try manually checking Parallels network configuration"
-    exit 1
+    return 1
 }
 
 # Get Ubuntu sudo password
@@ -572,6 +577,17 @@ cmd_status() {
 
     printf "│ %-27s │ %-15s │ %-15s │\n" "Chrome MCP" "$mac_ip:$MCP_PORT" "$chrome_status"
 
+    # VM services
+    for svc in "${VM_SERVICES[@]}"; do
+        local svc_name="${svc%%:*}"
+        local svc_port="${svc##*:}"
+        local svc_status="❌ Not accessible"
+        if curl -s -o /dev/null -w "" --connect-timeout 3 "http://myubuntu:${svc_port}" 2>/dev/null; then
+            svc_status="✅ Accessible"
+        fi
+        printf "│ %-27s │ %-15s │ %-15s │\n" "$svc_name" "myubuntu:$svc_port" "$svc_status"
+    done
+
     echo "├─────────────────────────────┼─────────────────┼─────────────────┤"
 
     # npm authentication status
@@ -667,13 +683,14 @@ cmd_sync() {
     echo
 
     # Verify VM is reachable (suspend/resume if Parallels bridge is stale)
-    local new_ip
-    if new_ip=$(ensure_vm_reachable "$vm_ip"); then
-        # VM might have gotten a new IP after suspend/resume
-        if [[ -n "$new_ip" && "$new_ip" != "$vm_ip" ]]; then
-            print_info "VM IP changed after recovery: $vm_ip → $new_ip"
-            vm_ip="$new_ip"
-        fi
+    if ! ensure_vm_reachable "$vm_ip"; then
+        print_error "Cannot reach VM. Aborting."
+        exit 1
+    fi
+    # VM might have gotten a new IP after suspend/resume
+    if [[ "$VM_REACHABLE_IP" != "$vm_ip" ]]; then
+        print_info "VM IP changed after recovery: $vm_ip → $VM_REACHABLE_IP"
+        vm_ip="$VM_REACHABLE_IP"
     fi
 
     # Ensure Chrome MCP is running (required for MCP connectivity)
@@ -730,6 +747,17 @@ cmd_sync() {
     # Verify Ubuntu → macOS (Chrome MCP)
     verify_chrome_mcp_from_ubuntu "$mac_ip"
 
+    # Verify VM services
+    for svc in "${VM_SERVICES[@]}"; do
+        local svc_name="${svc%%:*}"
+        local svc_port="${svc##*:}"
+        if curl -s -o /dev/null -w "" --connect-timeout 3 "http://myubuntu:${svc_port}" 2>/dev/null; then
+            print_success "✓ $svc_name accessible at http://myubuntu:$svc_port"
+        else
+            print_warning "✗ $svc_name not accessible at http://myubuntu:$svc_port (is it running?)"
+        fi
+    done
+
     if $verification_failed; then
         echo
         print_error "Verification failed - hostname resolution not working correctly"
@@ -740,6 +768,11 @@ cmd_sync() {
     print_success "=== All Systems Ready ==="
     print_info "macOS → Ubuntu: ssh ubuntu  OR  ssh parallels@myubuntu"
     print_info "Ubuntu → macOS: Chrome MCP at http://$UBUNTU_HOSTNAME_FOR_MAC:9223"
+    for svc in "${VM_SERVICES[@]}"; do
+        local svc_name="${svc%%:*}"
+        local svc_port="${svc##*:}"
+        print_info "VM Service:     $svc_name at http://myubuntu:$svc_port"
+    done
     echo
 }
 
