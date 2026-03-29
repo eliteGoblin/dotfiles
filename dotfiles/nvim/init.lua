@@ -387,7 +387,7 @@ require("lazy").setup({
     "iamcco/markdown-preview.nvim",
     cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
     ft = { "markdown" },
-    build = function() vim.fn["mkdp#util#install"]() end,
+    build = "cd app && npx --yes yarn install",
     keys = {
       { "<leader>mp", "<cmd>MarkdownPreviewToggle<cr>", desc = "Toggle Markdown Preview (browser)" },
     },
@@ -477,6 +477,39 @@ map("t", "<C-h>", [[<C-\><C-n><C-w>h]], { desc = "Go to left window" })
 map("t", "<C-j>", [[<C-\><C-n><C-w>j]], { desc = "Go to lower window" })
 map("t", "<C-k>", [[<C-\><C-n><C-w>k]], { desc = "Go to upper window" })
 map("t", "<C-l>", [[<C-\><C-n><C-w>l]], { desc = "Go to right window" })
+
+-- HTML preview server (python3 -m http.server)
+local html_server = { job_id = nil, port = 8899, dir = nil }
+
+local function stop_html_server()
+  if html_server.job_id then
+    vim.fn.jobstop(html_server.job_id)
+    html_server.job_id = nil
+    html_server.dir = nil
+    vim.notify("HTML server stopped", vim.log.levels.INFO)
+  end
+end
+
+local function toggle_html_server()
+  if html_server.job_id then
+    stop_html_server()
+    return
+  end
+  local file = vim.fn.expand("%:t")
+  local dir = vim.fn.expand("%:p:h")
+  local cmd = { "python3", "-m", "http.server", tostring(html_server.port), "--bind", "0.0.0.0" }
+  html_server.job_id = vim.fn.jobstart(cmd, { cwd = dir, detach = false })
+  html_server.dir = dir
+  local handle = io.popen("hostname -I 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || echo localhost")
+  local host = vim.trim(handle:read("*a"):match("%S+") or "localhost")
+  handle:close()
+  local url = "http://" .. host .. ":" .. html_server.port .. "/" .. file
+  vim.fn.setreg("+", url)
+  vim.notify("HTML server started (URL copied): " .. url, vim.log.levels.INFO)
+end
+
+vim.keymap.set("n", "<leader>h", toggle_html_server, { desc = "Toggle HTML preview server" })
+vim.api.nvim_create_autocmd("VimLeave", { callback = stop_html_server })
 
 -- Tree-sitter folding for JSON/YAML/Markdown
 vim.api.nvim_create_autocmd("FileType", {

@@ -422,6 +422,15 @@ The `!` command pipes text through external commands - one of vim's most powerfu
 | `Space+mr` | Toggle markdown rendering in-buffer (render-markdown.nvim) |
 | `Space+mp` | Toggle markdown preview in browser with mermaid/KaTeX (markdown-preview.nvim) |
 
+### HTML Preview
+| Key | Action |
+|-----|--------|
+| `Space+h` | Toggle HTML preview server (starts/stops python3 http.server on port 8899) |
+
+- Serves from the current file's directory, binds to `0.0.0.0`
+- URL is auto-copied to clipboard (e.g. `http://192.168.x.x:8899/file.html`)
+- Server auto-kills on nvim exit (no orphaned processes)
+
 ### Commenting (Comment.nvim)
 | Key | Action |
 |-----|--------|
