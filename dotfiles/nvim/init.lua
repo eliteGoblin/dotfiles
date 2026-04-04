@@ -266,7 +266,12 @@ require("lazy").setup({
         sources = cmp.config.sources({
           { name = "nvim_lsp" },
           { name = "luasnip" },
-          { name = "buffer" },
+          {
+            name = "buffer",
+            entry_filter = function(entry)
+              return #entry:get_word() <= 40
+            end,
+          },
           { name = "path" },
         }),
       })
