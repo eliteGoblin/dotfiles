@@ -207,8 +207,48 @@ get_nmcli_connection_name() {
     fi
 }
 
-# Ensure VM is reachable from macOS (ping check with suspend/resume recovery)
-# Sets VM_REACHABLE_IP to the (possibly new) VM IP after recovery
+# Wait for VM to be reachable, polling every 5s up to max_wait_seconds.
+# Updates global VM_REACHABLE_IP if the IP changes during wait.
+# Returns 0 if reachable, 1 if not.
+_wait_until_vm_reachable() {
+    local max_wait_seconds=$1
+    local elapsed=0
+    while [[ $elapsed -lt $max_wait_seconds ]]; do
+        sleep 5
+        elapsed=$((elapsed + 5))
+        local current_ip
+        current_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
+        if [[ -n "$current_ip" ]] && ping -c 1 -W 3 "$current_ip" >/dev/null 2>&1; then
+            VM_REACHABLE_IP="$current_ip"
+            print_success "✓ VM reachable at $current_ip (after ${elapsed}s)"
+            return 0
+        fi
+        print_info "  Waiting... (${elapsed}s)"
+    done
+    return 1
+}
+
+# Ensure NetworkManager is running on the VM and bring up the connection.
+# Some recovery steps (esp. NIC disconnect) leave NM inactive on the VM.
+_ensure_vm_networkmanager_up() {
+    local nm_state
+    nm_state=$("$PRLCTL" exec "$VM_NAME" systemctl is-active NetworkManager 2>/dev/null || echo "inactive")
+    if [[ "$nm_state" != "active" ]]; then
+        print_info "  NetworkManager not active on VM — starting it..."
+        "$PRLCTL" exec "$VM_NAME" sudo systemctl start NetworkManager 2>/dev/null || true
+        sleep 2
+    fi
+    local nmcli_conn
+    nmcli_conn=$(get_nmcli_connection_name)
+    "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$nmcli_conn" 2>/dev/null || true
+}
+
+# Ensure VM is reachable from macOS, escalating recovery steps.
+# Recovery ladder (NEVER cold-restart — user keeps long-lived tmux sessions):
+#   1. Suspend/resume (re-handshakes Parallels bridge, preserves VM state)
+#   2. nmcli connection down/up (forces fresh DHCP lease)
+#   3. Virtual NIC disconnect/reconnect via prlctl (jolts the bridge without rebooting)
+# Sets VM_REACHABLE_IP to the (possibly new) VM IP after recovery.
 VM_REACHABLE_IP=""
 ensure_vm_reachable() {
     local vm_ip=$1
@@ -220,40 +260,50 @@ ensure_vm_reachable() {
 
     print_warning "VM has IP $vm_ip but is not reachable from macOS"
     print_info "This usually happens when the network changed and the Parallels bridge is stale"
-    print_info "Attempting recovery: suspend and resume VM to reinitialize network bridge..."
 
-    "$PRLCTL" suspend "$VM_NAME" 2>&1 || {
-        print_error "Failed to suspend VM"
-        return 1
-    }
+    local nmcli_conn
+    nmcli_conn=$(get_nmcli_connection_name)
 
-    print_info "VM suspended. Resuming..."
-
-    "$PRLCTL" resume "$VM_NAME" 2>&1 || {
-        print_error "Failed to resume VM"
-        return 1
-    }
-
-    # Wait for VM to fully resume and get network
-    print_info "Waiting for VM to resume and acquire network..."
-    local wait_count=0
-    local max_wait=12  # 12 * 5s = 60s max
-    while [[ $wait_count -lt $max_wait ]]; do
-        sleep 5
-        vm_ip=$("$PRLCTL" exec "$VM_NAME" ip -4 addr show "$NETWORK_INTERFACE" 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}' || true)
-
-        if [[ -n "$vm_ip" ]] && ping -c 1 -W 3 "$vm_ip" >/dev/null 2>&1; then
-            print_success "✓ VM reachable at $vm_ip after suspend/resume"
-            VM_REACHABLE_IP="$vm_ip"
+    # --- Step 1: suspend/resume ---
+    print_info "Recovery (1/3): suspend and resume VM to reinitialize network bridge..."
+    if "$PRLCTL" suspend "$VM_NAME" 2>&1 && "$PRLCTL" resume "$VM_NAME" 2>&1; then
+        print_info "Waiting for VM to resume and acquire network..."
+        if _wait_until_vm_reachable 60; then
             return 0
         fi
+        print_warning "Suspend/resume did not restore reachability"
+    else
+        print_warning "Suspend/resume failed, continuing to next recovery step"
+    fi
 
-        ((wait_count++))
-        print_info "  Waiting... ($((wait_count * 5))s)"
-    done
+    # --- Step 2: force fresh DHCP lease via nmcli ---
+    print_info "Recovery (2/3): forcing fresh DHCP lease via nmcli..."
+    "$PRLCTL" exec "$VM_NAME" sudo nmcli connection down "$nmcli_conn" 2>/dev/null || true
+    sleep 2
+    "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$nmcli_conn" 2>/dev/null || true
+    if _wait_until_vm_reachable 30; then
+        return 0
+    fi
+    print_warning "DHCP renewal did not restore reachability"
 
-    print_error "VM still not reachable after suspend/resume"
-    print_info "Try manually checking Parallels network configuration"
+    # --- Step 3: toggle the virtual NIC to jolt the Parallels bridge ---
+    # This is more disruptive (NM may go inactive) but preserves VM state and tmux sessions.
+    print_info "Recovery (3/3): disconnecting and reconnecting VM virtual NIC..."
+    "$PRLCTL" set "$VM_NAME" --device-disconnect net0 >/dev/null 2>&1 || true
+    sleep 2
+    "$PRLCTL" set "$VM_NAME" --device-connect net0 >/dev/null 2>&1 || true
+    sleep 3
+    _ensure_vm_networkmanager_up
+    if _wait_until_vm_reachable 45; then
+        return 0
+    fi
+
+    print_error "VM still not reachable after all non-disruptive recovery steps"
+    print_info "All escalation paths exhausted (suspend/resume, DHCP renew, NIC toggle)"
+    print_info "A VM cold restart MAY fix this, but is intentionally NOT automated to preserve tmux sessions."
+    print_info "If you want to try a cold restart manually:"
+    print_info "  $PRLCTL stop \"$VM_NAME\" && $PRLCTL start \"$VM_NAME\""
+    print_info "Or check Parallels network configuration / your physical network."
     return 1
 }
 
