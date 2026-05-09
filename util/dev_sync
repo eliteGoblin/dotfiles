@@ -73,11 +73,15 @@ print_info() {
     echo -e "${BLUE}$*${NC}"
 }
 
-# Get VM IP address with auto-recovery
+# Get VM IP address with auto-recovery (no cold-restart — preserves tmux sessions).
+# Recovery escalation when VM has no IPv4 address:
+#   1. systemctl restart NetworkManager
+#   2. nmcli connection down/up (force fresh DHCP request)
+#   3. Virtual NIC disconnect/reconnect via prlctl (jolts wedged Parallels bridge)
 get_vm_ip() {
     local vm_ip
     local retry_count=0
-    local max_retries=2  # Try: 1) NetworkManager restart, 2) nmcli reconnect
+    local max_retries=3
 
     # Check if VM is running
     if ! "$PRLCTL" list | grep -q "$VM_NAME"; then
@@ -95,12 +99,14 @@ get_vm_ip() {
             return 0
         fi
 
-        # No IP detected - try recovery methods
+        # No IP detected - try recovery methods (each less common, more disruptive)
+        local nmcli_conn
+        nmcli_conn=$(get_nmcli_connection_name)
+
         case $retry_count in
             0)
-                # First attempt: restart NetworkManager
                 print_warning "VM is running but has no IPv4 address"
-                print_info "Attempting auto-recovery (1/2): restarting NetworkManager..."
+                print_info "Attempting auto-recovery (1/3): restarting NetworkManager..."
 
                 if "$PRLCTL" exec "$VM_NAME" sudo systemctl restart NetworkManager 2>/dev/null; then
                     print_info "Waiting for network to recover..."
@@ -110,12 +116,7 @@ get_vm_ip() {
                 fi
                 ;;
             1)
-                # Second attempt: cycle the network connection via nmcli
-                print_info "Attempting auto-recovery (2/2): cycling network connection..."
-
-                # nmcli uses connection names (e.g. "netplan-enp0s5"), not interface names
-                local nmcli_conn
-                nmcli_conn=$(get_nmcli_connection_name)
+                print_info "Attempting auto-recovery (2/3): cycling NetworkManager connection..."
 
                 "$PRLCTL" exec "$VM_NAME" sudo nmcli connection down "$nmcli_conn" 2>/dev/null || true
                 sleep 2
@@ -123,22 +124,39 @@ get_vm_ip() {
                     print_info "Waiting for DHCP lease..."
                     sleep 5
                 else
-                    print_warning "nmcli connection up failed"
+                    print_warning "nmcli connection up failed (likely DHCP timeout — bridge may be wedged)"
                 fi
+                ;;
+            2)
+                # Bridge is likely wedged — toggle the virtual NIC via prlctl.
+                # This is non-disruptive: VM keeps running, tmux sessions survive.
+                print_info "Attempting auto-recovery (3/3): toggling virtual NIC to jolt Parallels bridge..."
+
+                "$PRLCTL" set "$VM_NAME" --device-disconnect net0 >/dev/null 2>&1 || true
+                sleep 2
+                "$PRLCTL" set "$VM_NAME" --device-connect net0 >/dev/null 2>&1 || true
+                sleep 3
+                # NIC toggle can leave NM inactive; ensure it's running before bringing connection up
+                local nm_state
+                nm_state=$("$PRLCTL" exec "$VM_NAME" systemctl is-active NetworkManager 2>/dev/null || echo "inactive")
+                if [[ "$nm_state" != "active" ]]; then
+                    "$PRLCTL" exec "$VM_NAME" sudo systemctl start NetworkManager 2>/dev/null || true
+                    sleep 2
+                fi
+                "$PRLCTL" exec "$VM_NAME" sudo nmcli connection up "$nmcli_conn" 2>/dev/null || true
+                print_info "Waiting for DHCP lease after NIC toggle..."
+                sleep 6
                 ;;
             *)
                 # All retries exhausted
                 print_error "Auto-recovery failed. VM still has no IPv4 address."
-                print_info "This usually happens when:"
-                print_info "  - You recently disconnected/reconnected to WiFi or hotspot"
-                print_info "  - The VM's DHCP client isn't working properly"
-                print_info "  - The network interface name changed"
+                print_info "All non-disruptive recovery paths exhausted (NM restart, nmcli cycle, NIC toggle)."
+                print_info "A VM cold restart MAY fix this, but is intentionally NOT automated to preserve tmux sessions."
                 print_info ""
-                local nmcli_conn_hint
-                nmcli_conn_hint=$(get_nmcli_connection_name 2>/dev/null || echo "$NETWORK_INTERFACE")
-                print_info "Try manually:"
-                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection down $nmcli_conn_hint"
-                print_info "  $PRLCTL exec \"$VM_NAME\" sudo nmcli connection up $nmcli_conn_hint"
+                print_info "Manual options:"
+                print_info "  1. Try once more: $PRLCTL exec \"$VM_NAME\" sudo nmcli connection up $nmcli_conn"
+                print_info "  2. Check the physical network (DHCP server reachable from your Mac?)"
+                print_info "  3. Last resort cold restart: $PRLCTL stop \"$VM_NAME\" && $PRLCTL start \"$VM_NAME\""
                 exit 1
                 ;;
         esac
