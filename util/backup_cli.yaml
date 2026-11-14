@@ -25,7 +25,7 @@ options:
   # Faster backups, but lose changes since last snapshot on restore
   # This is to avoid annoying issue:  suspend VM will always change current
   #  disk file, which every time after suspend VM need to upload ~6G file
-  exclude_active_hds: true
+  exclude_active_hds: false
 
 # Sync rounds - files synced in order by max size
 # Each round syncs files up to that size, final round syncs all remaining
