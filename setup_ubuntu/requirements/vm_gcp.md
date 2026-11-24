@@ -88,7 +88,7 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `myvm rdp` # start VM and tunnel if needed, open Remote Desktop
 - `myvm fix-rdp` # restart xrdp on the VM
 - `myvm suspend` / `myvm resume` # hibernate: memory is kept, VM charge stops
-- `myvm idle` # seconds since the last activity (terminal output, Claude conversation files, desktop input, CPU load)
+- `myvm idle [MIN]` # show each activity signal (terminal output, Claude conversation files, desktop input, CPU load) and whether the VM would be suspended now
 - `myvm autosuspend start [MIN]` / `stop` # laptop-side watcher: suspend after MIN idle minutes (default 30); needs `sudo apt install xprintidle` on the VM for desktop input
 - The watcher starts by default with `myvm start`, `resume`, `ssh`, `rdp` and `tunnel start`; set `MYVM_AUTOSUSPEND=0` in the config to turn it off
 

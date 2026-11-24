@@ -32,7 +32,7 @@ Usage: myvm <command>
   rdp             start the VM and the tunnel if needed, then open Remote Desktop
   fix-rdp         restart xrdp on the VM
   suspend | resume           hibernate the VM (memory is kept) or wake it
-  idle                       seconds since the last activity on the VM
+  idle [MIN]                 show each activity signal and whether the VM would be suspended now
   autosuspend start [MIN]    suspend the VM after MIN idle minutes (default $DEFAULT_IDLE_MINUTES);
                              starts by default with start, resume, ssh, rdp and tunnel start
   autosuspend stop           stop the idle watcher
@@ -81,20 +81,37 @@ fix_rdp() {
 # Seconds since the last activity on the VM. Activity is: terminal output or input
 # (a working Claude prints continuously), a changed Claude conversation file,
 # keyboard or mouse input on the desktop, or a 1-minute load of $BUSY_LOAD or more.
-idle_seconds() {
+# Prints one line: IDLE TTY CLAUDE DESKTOP LOAD (seconds since each kind of activity; "-" = no desktop session).
+idle_report() {
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$MYVM_HOST" BUSY_LOAD="$BUSY_LOAD" bash -s <<'REMOTE'
 now=$(date +%s)
-if awk -v l="$(cut -d' ' -f1 /proc/loadavg)" -v b="$BUSY_LOAD" 'BEGIN{exit !(l>=b)}'; then echo 0; exit; fi
+load=$(cut -d' ' -f1 /proc/loadavg)
 tty=$(stat -c %Y /dev/pts/[0-9]* 2>/dev/null | sort -n | tail -1)
 claude=$(find "$HOME/.claude/projects" -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
-idle=$(( now - $(printf '%s\n' "${tty:-0}" "${claude:-0}" | sort -n | tail -1) ))
+tty=$(( now - ${tty:-0} )); claude=$(( now - ${claude:-0} )); desktop=-
+idle=$(( tty < claude ? tty : claude ))
 for sock in /tmp/.X11-unix/X*; do
   [ -S "$sock" ] && [ -O "$sock" ] && command -v xprintidle >/dev/null || continue
   x=$(( $(DISPLAY=":${sock##*/X}" xprintidle 2>/dev/null || echo 999999999) / 1000 ))
-  [ "$x" -lt "$idle" ] && idle=$x
+  desktop=$x; [ "$x" -lt "$idle" ] && idle=$x
 done
-echo "$idle"
+if awk -v l="$load" -v b="$BUSY_LOAD" 'BEGIN{exit !(l>=b)}'; then idle=0; fi
+echo "$idle $tty $claude $desktop $load"
 REMOTE
+}
+
+idle_seconds() { idle_report | cut -d' ' -f1; }
+
+# One snapshot is enough: every value except the load is a stored "last activity" time.
+idle_show() {
+  local idle tty claude desktop load limit=$(( ${1:-$DEFAULT_IDLE_MINUTES} * 60 ))
+  read -r idle tty claude desktop load < <(idle_report)
+  echo "terminal output/input: ${tty}s ago"
+  echo "claude conversation:   ${claude}s ago"
+  echo "desktop input:         ${desktop}s ago"
+  echo "cpu load (1 min):      $load (busy at $BUSY_LOAD or more)"
+  echo "idle:                  ${idle}s of ${limit}s"
+  if [ "$idle" -ge "$limit" ]; then echo "suspend now:           yes"; else echo "suspend now:           no"; fi
 }
 
 watch_running() { [ -f "$WATCH_PID_FILE" ] && kill -0 "$(cat "$WATCH_PID_FILE")" 2>/dev/null; }
@@ -166,7 +183,7 @@ case "${1:-}" in
   status) status ;;
   start|resume) ensure_running; autosuspend_default ;;
   suspend) gc suspend ;;
-  idle) idle_seconds ;;
+  idle) idle_show "${2:-}" ;;
   autosuspend)
     case "${2:-}" in
       start) autosuspend_start "${3:-}" ;;
