@@ -108,7 +108,8 @@ requirements/
 ├── core_dev.md           # Core Linux + Node/Python tools
 ├── shell.md              # ZSH, Oh My Zsh, plugins
 ├── editors_ide.md        # Neovim, LSP servers
-└── ssh.md                # SSH access configuration
+├── ssh.md                # SSH access configuration
+└── vm_gcp.md             # GCP cloud devbox (IAP, desktop, schedule)
 ```
 
 ---
