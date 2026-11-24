@@ -67,3 +67,4 @@ if [ -r ~/.creds/personal.sh ]; then
     export GH_TOKEN=$(grep FRANK_GH_TOKEN_ADMIN ~/.creds/personal.sh | cut -d= -f2)
 fi
 export PATH="$HOME/.tfenv/bin:$PATH"
+export PATH=$HOME/.local/go/bin:$HOME/go/bin:$PATH
