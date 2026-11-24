@@ -98,6 +98,23 @@ Minimal, practical tmux configuration optimized for backend and DevOps workflows
 3. Run dotfiles installer (creates symlink)
 4. Launch tmux and install plugins: `Ctrl+b I`
 
+## Install Commands (Ubuntu 24.04, non-interactive)
+```bash
+sudo apt install -y zsh tmux autojump xclip
+
+# Oh My Zsh without starting zsh or changing the shell; the dotfiles installer replaces ~/.zshrc afterwards
+RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+git clone --depth 1 https://github.com/zsh-users/zsh-autosuggestions ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
+
+# TPM, then the dotfiles installer, then the tmux plugins without the Ctrl+a I key press
+git clone --depth 1 https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+~/.dotfiles/dotfiles/install.sh
+tmux -L setup -f ~/.tmux.conf new-session -d && tmux -L setup run-shell ~/.tmux/plugins/tpm/bin/install_plugins; tmux -L setup kill-server
+
+# Login shell (existing sessions keep the old shell)
+sudo chsh -s "$(command -v zsh)" "$USER"
+```
+
 ## Notes for Claude
 - Install ZSH plugins before running dotfiles installer
 - Install tmux and TPM before dotfiles installation

@@ -1,21 +1,25 @@
 # AI Tools Requirements
 
-## Claude CLI
+## Claude Code
 
-### Installation Target
-- **Package**: `@anthropic-ai/claude-code` via npm
-- **Alternative**: `curl -fsSL https://claude.ai/install.sh | bash`
-- **Scope**: Global installation for system-wide access
+### Installation
+Native installer (official method, see https://code.claude.com/docs/en/setup):
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+- Installs `~/.local/bin/claude` (symlink into `~/.local/share/claude/versions/`), updates itself in the background
+- No Node.js needed
+- `~/.local/bin` is already on PATH through `zsh/.zshrc`
 
-### Dependencies
-- Node.js (installed via NVM in core_dev.md)
-- npm or yarn package manager
-- Internet connection for API access
+### Verification
+```bash
+claude --version   # in a new shell
+claude doctor
+```
 
-### Configuration Requirements
-- Anthropic API key (from console.anthropic.com)
-- Environment variable: `ANTHROPIC_API_KEY`
-- Shell integration for PATH access
+### Login
+- Run `claude` once and follow the browser prompt (interactive, done by the user)
+- Do not store an API key in the dotfiles
 
 ### Expected Functionality
 - Interactive chat mode

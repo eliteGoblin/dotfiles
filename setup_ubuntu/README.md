@@ -158,7 +158,7 @@ If you want to bootstrap manually instead of Claude:
 ```bash
 ssh ubuntu
 git clone https://github.com/eliteGoblin/dotfiles ~/.dotfiles
-cd ~/.dotfiles && ./install.sh
+cd ~/.dotfiles/dotfiles && ./install.sh
 ```
 
 Then apply requirement setups manually or via Claude.

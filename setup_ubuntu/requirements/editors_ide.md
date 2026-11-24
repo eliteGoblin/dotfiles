@@ -33,6 +33,7 @@
    sudo apt update && sudo apt install neovim
 
    # Method 2: AppImage (ARM64/x86_64, no sudo required)
+   # Ubuntu 24.04 has no FUSE 2 by default; the AppImage needs: sudo apt install libfuse2t64
    cd /tmp
    # For ARM64 (e.g., Apple Silicon in VM)
    wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-arm64.appimage
@@ -50,8 +51,15 @@
    nvim --version  # Should show 0.11+
    ```
 2. Run dotfiles installer: `~/.dotfiles/install.sh`
-3. Install plugins: `nvim --headless "+Lazy! sync" +qa`
-4. Verify: `nvim .` should show file tree panel
+3. Install the tree-sitter CLI (nvim-treesitter main branch needs 0.26.1+, the apt package is too old):
+   ```bash
+   curl -fsSL https://github.com/tree-sitter/tree-sitter/releases/latest/download/tree-sitter-linux-x64.gz | gunzip > ~/.local/bin/tree-sitter
+   chmod +x ~/.local/bin/tree-sitter
+   ```
+4. Install plugins at the versions pinned in `lazy-lock.json`: `nvim --headless "+Lazy! restore" +qa`
+   (`Lazy! sync` updates the plugins and rewrites the lockfile; use it only to upgrade.)
+5. Install LSP servers (needs Node.js): `nvim --headless "+MasonInstall lua-language-server pyright typescript-language-server" +qa`
+6. Verify: `nvim .` should show file tree panel
 
 ### Key Bindings
 

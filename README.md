@@ -13,7 +13,7 @@ For new laptop initialization, Claude can automatically set up both macOS and Pa
 ### Automated Setup
 ```bash
 git clone <repo> ~/.dotfiles
-cd ~/.dotfiles
+cd ~/.dotfiles/dotfiles
 ./install.sh
 ```
 

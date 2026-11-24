@@ -47,7 +47,7 @@ After following all requirements, you should have:
 - **Verify each step**: Test functionality before proceeding
 - **Cross-platform consistency**: Same dotfiles work on macOS and Ubuntu
 - **Plugin commands**:
-  - Neovim: `nvim --headless "+Lazy! sync" +qa`
+  - Neovim: `nvim --headless "+Lazy! restore" +qa` (installs the versions pinned in `lazy-lock.json`)
   - tmux: `tmux source ~/.tmux.conf` then `Ctrl+a I` for plugins
 - **Test commands**:
   - Shell: `zsh` → should load with Oh My Zsh theme

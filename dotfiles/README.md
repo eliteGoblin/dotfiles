@@ -36,7 +36,7 @@ dotfiles/
 1. **Clone the repository**
    ```bash
    git clone <your-repo-url> ~/.dotfiles
-   cd ~/.dotfiles
+   cd ~/.dotfiles/dotfiles
    ```
 
 2. **Run the installation script**
