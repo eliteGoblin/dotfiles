@@ -87,6 +87,9 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `myvm tunnel start|stop` # RDP tunnel on localhost:13389, reconnects automatically
 - `myvm rdp` # start VM and tunnel if needed, open Remote Desktop
 - `myvm fix-rdp` # restart xrdp on the VM
+- `myvm suspend` / `myvm resume` # hibernate: memory is kept, VM charge stops
+- `myvm idle` # seconds since the last activity (terminal output, Claude conversation files, desktop input, CPU load)
+- `myvm autosuspend start [MIN]` / `stop` # laptop-side watcher: suspend after MIN idle minutes (default 30); needs `sudo apt install xprintidle` on the VM for desktop input
 
 ## Chrome MCP (VM)
 - `ln -sfn ~/devel/dotfiles/util/run_chrome_mcp_linux ~/.local/bin/run_chrome_mcp_linux`

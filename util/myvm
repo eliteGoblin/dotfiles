@@ -15,6 +15,11 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/myvm"
 PID_FILE="$STATE_DIR/tunnel-$MYVM_RDP_PORT.pid"
 LOG_FILE="$STATE_DIR/tunnel-$MYVM_RDP_PORT.log"
 RETRY_SECONDS=3
+WATCH_PID_FILE="$STATE_DIR/autosuspend.pid"
+WATCH_LOG_FILE="$STATE_DIR/autosuspend.log"
+DEFAULT_IDLE_MINUTES=30
+CHECK_SECONDS=300
+BUSY_LOAD=1.0
 
 usage() {
   cat <<EOF
@@ -26,6 +31,10 @@ Usage: myvm <command>
   tunnel stop     close the tunnel
   rdp             start the VM and the tunnel if needed, then open Remote Desktop
   fix-rdp         restart xrdp on the VM
+  suspend | resume           hibernate the VM (memory is kept) or wake it
+  idle                       seconds since the last activity on the VM
+  autosuspend start [MIN]    suspend the VM after MIN idle minutes (default $DEFAULT_IDLE_MINUTES)
+  autosuspend stop           stop the idle watcher
 Config: $CONFIG (MYVM_PROJECT, MYVM_ZONE, MYVM_NAME, MYVM_HOST, MYVM_RDP_PORT)
 EOF
 }
@@ -68,16 +77,76 @@ fix_rdp() {
   ssh "$MYVM_HOST" 'sudo systemctl reset-failed xrdp xrdp-sesman; sudo systemctl start xrdp-sesman xrdp; echo "xrdp: $(systemctl is-active xrdp)"'
 }
 
+# Seconds since the last activity on the VM. Activity is: terminal output or input
+# (a working Claude prints continuously), a changed Claude conversation file,
+# keyboard or mouse input on the desktop, or a 1-minute load of $BUSY_LOAD or more.
+idle_seconds() {
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$MYVM_HOST" BUSY_LOAD="$BUSY_LOAD" bash -s <<'REMOTE'
+now=$(date +%s)
+if awk -v l="$(cut -d' ' -f1 /proc/loadavg)" -v b="$BUSY_LOAD" 'BEGIN{exit !(l>=b)}'; then echo 0; exit; fi
+tty=$(stat -c %Y /dev/pts/[0-9]* 2>/dev/null | sort -n | tail -1)
+claude=$(find "$HOME/.claude/projects" -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
+idle=$(( now - $(printf '%s\n' "${tty:-0}" "${claude:-0}" | sort -n | tail -1) ))
+for sock in /tmp/.X11-unix/X*; do
+  [ -S "$sock" ] && [ -O "$sock" ] && command -v xprintidle >/dev/null || continue
+  x=$(( $(DISPLAY=":${sock##*/X}" xprintidle 2>/dev/null || echo 999999999) / 1000 ))
+  [ "$x" -lt "$idle" ] && idle=$x
+done
+echo "$idle"
+REMOTE
+}
+
+watch_running() { [ -f "$WATCH_PID_FILE" ] && kill -0 "$(cat "$WATCH_PID_FILE")" 2>/dev/null; }
+
+# Runs in the background on the laptop: suspends the VM once it has been idle long enough, then exits.
+watch_loop() {
+  local limit=$(( $1 * 60 )) idle
+  while :; do
+    if [ "$(vm_state)" != RUNNING ]; then echo "$(date '+%F %T') vm not running, watcher ends"; break; fi
+    idle="$(idle_seconds || echo 0)"
+    echo "$(date '+%F %T') idle=${idle}s limit=${limit}s"
+    if [ "$idle" -ge "$limit" ]; then gc suspend; echo "$(date '+%F %T') suspended"; break; fi
+    sleep "$CHECK_SECONDS"
+  done
+  rm -f "$WATCH_PID_FILE"
+}
+
+autosuspend_start() {
+  if watch_running; then echo "autosuspend: already running"; return; fi
+  mkdir -p "$STATE_DIR"
+  local minutes="${1:-$DEFAULT_IDLE_MINUTES}"
+  setsid "$0" _watch "$minutes" >"$WATCH_LOG_FILE" 2>&1 &
+  echo $! >"$WATCH_PID_FILE"
+  echo "autosuspend: suspends after $minutes idle minutes (log: $WATCH_LOG_FILE)"
+}
+
+autosuspend_stop() {
+  if ! watch_running; then echo "autosuspend: not running"; rm -f "$WATCH_PID_FILE"; return; fi
+  kill -- "-$(cat "$WATCH_PID_FILE")" 2>/dev/null || true
+  rm -f "$WATCH_PID_FILE"
+  echo "autosuspend: stopped"
+}
+
+# Bring the VM to RUNNING from any state.
+ensure_running() {
+  case "$(vm_state)" in
+    RUNNING) ;;
+    SUSPENDED) gc resume ;;
+    *) gc start ;;
+  esac
+}
+
 status() {
   local state; state="$(vm_state)"
   echo "vm: $state"
   if tunnel_running; then echo "tunnel: running on localhost:$MYVM_RDP_PORT"; else echo "tunnel: not running"; fi
+  if watch_running; then echo "autosuspend: running"; else echo "autosuspend: not running"; fi
   [ "$state" = RUNNING ] && echo "xrdp: $(ssh -o BatchMode=yes -o ConnectTimeout=15 "$MYVM_HOST" systemctl is-active xrdp 2>/dev/null || echo unknown)"
   return 0
 }
 
 rdp() {
-  if [ "$(vm_state)" != RUNNING ]; then gc start; fi
+  ensure_running
   [ "$(ssh -o BatchMode=yes "$MYVM_HOST" systemctl is-active xrdp || true)" = active ] || fix_rdp
   tunnel_start
   if command -v mstsc.exe >/dev/null 2>&1; then
@@ -89,7 +158,17 @@ rdp() {
 
 case "${1:-}" in
   status) status ;;
-  start) gc start ;;
+  start) ensure_running ;;
+  suspend) gc suspend ;;
+  resume) ensure_running ;;
+  idle) idle_seconds ;;
+  autosuspend)
+    case "${2:-}" in
+      start) autosuspend_start "${3:-}" ;;
+      stop) autosuspend_stop ;;
+      *) usage; exit 1 ;;
+    esac ;;
+  _watch) watch_loop "$2" ;;
   stop) gc stop ;;
   ssh) shift; exec ssh "$MYVM_HOST" "$@" ;;
   tunnel)
