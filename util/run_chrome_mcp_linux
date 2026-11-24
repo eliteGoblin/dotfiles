@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# run_chrome_mcp_linux - Manage the Chrome MCP instance on native Linux.
+#
+# Goal: a single, persistent Chrome instance that Claude Code MCP can drive
+# from any folder and any session — no per-project re-login.
+#
+# How it works:
+#   - Probes http://127.0.0.1:PORT/json/version. If Chrome answers, reuse it.
+#   - If not, starts Chrome with the dedicated profile ~/.chrome-mcp-profile.
+#     It uses the user's desktop display (for example an xrdp session) when one
+#     exists; otherwise it starts headless with the same profile, so logins
+#     made earlier on the desktop still apply.
+#   - In `mcp` mode it execs `npx chrome-devtools-mcp@latest --browserUrl=...`
+#     so it can be wired in directly as Claude's user-scope MCP server command.
+#
+# Usage:
+#   run_chrome_mcp_linux mcp        # default; for use as Claude MCP server entry
+#   run_chrome_mcp_linux start      # ensure Chrome is up; print URL
+#   run_chrome_mcp_linux stop       # stop the Chrome MCP instance
+#   run_chrome_mcp_linux status     # health check
+#   run_chrome_mcp_linux url        # print browser URL
+#   run_chrome_mcp_linux restart    # stop then start (use after an RDP login to get a visible window)
+#
+# Env overrides:
+#   CHROME_MCP_PORT (default 9222)
+#   CHROME_MCP_HEADLESS=1 — never use a desktop display
+
+set -euo pipefail
+
+PORT="${CHROME_MCP_PORT:-9222}"
+URL="http://127.0.0.1:$PORT"
+PROFILE="$HOME/.chrome-mcp-profile"
+STATE_DIR="$HOME/.chrome-mcp"
+LOG="$STATE_DIR/chrome-mcp.log"
+START_TIMEOUT_SECONDS=20
+
+log() { echo "run_chrome_mcp_linux: $*" >&2; }
+
+is_up() { curl --silent --max-time 2 "$URL/json/version" >/dev/null 2>&1; }
+
+chrome_bin() {
+  command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser \
+    || { log "Chrome not found. Install google-chrome-stable."; exit 1; }
+}
+
+# Print the first X display owned by this user (":10" for an xrdp session), or nothing.
+find_display() {
+  [ -n "${CHROME_MCP_HEADLESS:-}" ] && return 0
+  local sock
+  for sock in /tmp/.X11-unix/X*; do
+    [ -S "$sock" ] && [ -O "$sock" ] && { echo ":${sock##*/X}"; return 0; }
+  done
+  return 0
+}
+
+start() {
+  if is_up; then log "Chrome already running at $URL"; return 0; fi
+  mkdir -p "$STATE_DIR"
+  local bin display mode
+  bin="$(chrome_bin)"
+  display="$(find_display)"
+  local args=(
+    "--user-data-dir=$PROFILE"
+    "--remote-debugging-port=$PORT"
+    "--remote-debugging-address=127.0.0.1"
+    "--remote-allow-origins=*"
+    "--no-first-run"
+    "--no-default-browser-check"
+    "--password-store=basic"
+  )
+  if [ -n "$display" ]; then
+    mode="display $display"
+    DISPLAY="$display" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" setsid nohup "$bin" "${args[@]}" >>"$LOG" 2>&1 &
+  else
+    mode="headless"
+    setsid nohup "$bin" --headless=new "${args[@]}" >>"$LOG" 2>&1 &
+  fi
+  local waited=0
+  until is_up; do
+    sleep 1; waited=$((waited + 1))
+    [ "$waited" -ge "$START_TIMEOUT_SECONDS" ] && { log "Chrome did not answer on $URL after ${START_TIMEOUT_SECONDS}s (log: $LOG)"; exit 1; }
+  done
+  log "Chrome started ($mode) at $URL"
+}
+
+stop() {
+  if pkill -u "$USER" -f -- "--user-data-dir=$PROFILE"; then log "Chrome stopped"; else log "Chrome not running"; fi
+}
+
+status() {
+  if is_up; then
+    echo "Chrome MCP: UP at $URL"
+    curl --silent --max-time 2 "$URL/json/version" | grep -E '"Browser"|"User-Agent"' || true
+  else
+    echo "Chrome MCP: DOWN"; return 1
+  fi
+}
+
+mcp() {
+  start
+  # Claude may spawn this without the interactive shell's nvm PATH.
+  if ! command -v npx >/dev/null 2>&1 && [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh" >/dev/null; fi
+  exec npx -y chrome-devtools-mcp@latest "--browserUrl=$URL"
+}
+
+case "${1:-mcp}" in
+  mcp) mcp ;;
+  start) start; echo "$URL" ;;
+  stop) stop ;;
+  status) status ;;
+  url) echo "$URL" ;;
+  restart) stop; sleep 1; start; echo "$URL" ;;
+  *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
