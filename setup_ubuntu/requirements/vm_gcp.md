@@ -31,9 +31,9 @@ gcloud compute instances create devbox-zsun --zone=$Z --machine-type=e2-standard
 # Access: IAP tunnel role for your account only
 gcloud projects add-iam-policy-binding $P --member=user:<GOOGLE_ACCOUNT> --role=roles/iap.tunnelResourceAccessor --condition=None
 
-# Schedule: start 06:00 Mon-Fri, stop 18:00 every day
-gcloud compute resource-policies create instance-schedule devbox-workhours --vm-start-schedule="0 6 * * 1-5" --vm-stop-schedule="0 18 * * *" --timezone="Australia/Sydney" --region=$R --project=$P
-gcloud compute instances add-resource-policies devbox-zsun --resource-policies=devbox-workhours --zone=$Z --project=$P
+# Schedule: stop 18:00 every day; no automatic start (start on demand with `myvm start`)
+gcloud compute resource-policies create instance-schedule devbox-stop-1800 --vm-stop-schedule="0 18 * * *" --timezone="Australia/Sydney" --region=$R --project=$P
+gcloud compute instances add-resource-policies devbox-zsun --resource-policies=devbox-stop-1800 --zone=$Z --project=$P
 ```
 
 ## Desktop: XFCE + xrdp + Chrome (run on the VM)
@@ -90,6 +90,7 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `myvm suspend` / `myvm resume` # hibernate: memory is kept, VM charge stops
 - `myvm idle` # seconds since the last activity (terminal output, Claude conversation files, desktop input, CPU load)
 - `myvm autosuspend start [MIN]` / `stop` # laptop-side watcher: suspend after MIN idle minutes (default 30); needs `sudo apt install xprintidle` on the VM for desktop input
+- The watcher starts by default with `myvm start`, `resume`, `ssh`, `rdp` and `tunnel start`; set `MYVM_AUTOSUSPEND=0` in the config to turn it off
 
 ## Chrome MCP (VM)
 - `ln -sfn ~/devel/dotfiles/util/run_chrome_mcp_linux ~/.local/bin/run_chrome_mcp_linux`

@@ -33,7 +33,8 @@ Usage: myvm <command>
   fix-rdp         restart xrdp on the VM
   suspend | resume           hibernate the VM (memory is kept) or wake it
   idle                       seconds since the last activity on the VM
-  autosuspend start [MIN]    suspend the VM after MIN idle minutes (default $DEFAULT_IDLE_MINUTES)
+  autosuspend start [MIN]    suspend the VM after MIN idle minutes (default $DEFAULT_IDLE_MINUTES);
+                             starts by default with start, resume, ssh, rdp and tunnel start
   autosuspend stop           stop the idle watcher
 Config: $CONFIG (MYVM_PROJECT, MYVM_ZONE, MYVM_NAME, MYVM_HOST, MYVM_RDP_PORT)
 EOF
@@ -111,6 +112,10 @@ watch_loop() {
   rm -f "$WATCH_PID_FILE"
 }
 
+# The watcher starts by default with start, resume, ssh, rdp and tunnel start.
+# Set MYVM_AUTOSUSPEND=0 in the config to turn that off.
+autosuspend_default() { [ "${MYVM_AUTOSUSPEND:-1}" = 0 ] || autosuspend_start "" >/dev/null; }
+
 autosuspend_start() {
   if watch_running; then echo "autosuspend: already running"; return; fi
   mkdir -p "$STATE_DIR"
@@ -147,6 +152,7 @@ status() {
 
 rdp() {
   ensure_running
+  autosuspend_default
   [ "$(ssh -o BatchMode=yes "$MYVM_HOST" systemctl is-active xrdp || true)" = active ] || fix_rdp
   tunnel_start
   if command -v mstsc.exe >/dev/null 2>&1; then
@@ -158,9 +164,8 @@ rdp() {
 
 case "${1:-}" in
   status) status ;;
-  start) ensure_running ;;
+  start|resume) ensure_running; autosuspend_default ;;
   suspend) gc suspend ;;
-  resume) ensure_running ;;
   idle) idle_seconds ;;
   autosuspend)
     case "${2:-}" in
@@ -170,10 +175,10 @@ case "${1:-}" in
     esac ;;
   _watch) watch_loop "$2" ;;
   stop) gc stop ;;
-  ssh) shift; exec ssh "$MYVM_HOST" "$@" ;;
+  ssh) shift; autosuspend_default; exec ssh "$MYVM_HOST" "$@" ;;
   tunnel)
     case "${2:-}" in
-      start) tunnel_start ;;
+      start) tunnel_start; autosuspend_default ;;
       stop) tunnel_stop ;;
       *) usage; exit 1 ;;
     esac ;;
