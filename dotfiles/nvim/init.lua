@@ -155,6 +155,11 @@ require("lazy").setup({
       require("nvim-treesitter").setup({
         ensure_installed = { "lua", "python", "javascript", "typescript", "json", "jsonc", "yaml", "markdown", "markdown_inline" },
       })
+      -- nvim-treesitter main branch ignores ensure_installed; install parsers explicitly.
+      -- Needs the tree-sitter CLI; no-op when the parsers are already installed.
+      if vim.fn.executable("tree-sitter") == 1 then
+        require("nvim-treesitter").install({ "lua", "python", "javascript", "typescript", "json", "yaml", "markdown", "markdown_inline" })
+      end
     end,
   },
 
