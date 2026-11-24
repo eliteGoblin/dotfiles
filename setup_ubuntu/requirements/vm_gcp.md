@@ -87,3 +87,8 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `myvm tunnel start|stop` # RDP tunnel on localhost:13389, reconnects automatically
 - `myvm rdp` # start VM and tunnel if needed, open Remote Desktop
 - `myvm fix-rdp` # restart xrdp on the VM
+
+## Chrome MCP (VM)
+- `ln -sfn ~/devel/dotfiles/util/run_chrome_mcp_linux ~/.local/bin/run_chrome_mcp_linux`
+- `claude mcp add -s user chrome-devtools -- ~/.local/bin/run_chrome_mcp_linux mcp` # One shared Chrome for all Claude sessions; starts it if it is not running
+- Log in to sites once in that Chrome window on the desktop; logins stay in `~/.chrome-mcp-profile`
