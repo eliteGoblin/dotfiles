@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# myvm - manage the GCP cloud devbox from the laptop (see setup_ubuntu/requirements/vm_gcp.md)
+set -euo pipefail
+
+CONFIG="${MYVM_CONFIG:-$HOME/.config/myvm/config}"
+[ -f "$CONFIG" ] && . "$CONFIG"
+
+: "${MYVM_HOST:=myubuntu}"      # Host entry in ~/.ssh/config
+: "${MYVM_NAME:=devbox-zsun}"   # GCP instance name
+: "${MYVM_ZONE:=australia-southeast1-a}"
+: "${MYVM_PROJECT:=}"           # set in $CONFIG
+: "${MYVM_RDP_PORT:=13389}"     # local port for the RDP tunnel
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/myvm"
+PID_FILE="$STATE_DIR/tunnel-$MYVM_RDP_PORT.pid"
+LOG_FILE="$STATE_DIR/tunnel-$MYVM_RDP_PORT.log"
+RETRY_SECONDS=3
+
+usage() {
+  cat <<EOF
+Usage: myvm <command>
+  status          VM state, tunnel state, xrdp state
+  start | stop    start or stop the VM
+  ssh [args]      open a shell on the VM (or run a command)
+  tunnel start    keep an RDP tunnel open on localhost:$MYVM_RDP_PORT (reconnects automatically)
+  tunnel stop     close the tunnel
+  rdp             start the VM and the tunnel if needed, then open Remote Desktop
+  fix-rdp         restart xrdp on the VM
+Config: $CONFIG (MYVM_PROJECT, MYVM_ZONE, MYVM_NAME, MYVM_HOST, MYVM_RDP_PORT)
+EOF
+}
+
+die() { echo "myvm: $*" >&2; exit 1; }
+
+gc() {
+  [ -n "$MYVM_PROJECT" ] || die "MYVM_PROJECT is not set; add it to $CONFIG"
+  gcloud compute instances "$1" "$MYVM_NAME" --zone="$MYVM_ZONE" --project="$MYVM_PROJECT" "${@:2}"
+}
+
+vm_state() { gc describe --format='value(status)'; }
+
+tunnel_running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
+
+tunnel_start() {
+  if tunnel_running; then echo "tunnel: already running on localhost:$MYVM_RDP_PORT"; return; fi
+  mkdir -p "$STATE_DIR"
+  # Own process group, so "tunnel stop" also ends the ssh child.
+  setsid bash -c "
+    while :; do
+      ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
+          -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+          -L $MYVM_RDP_PORT:localhost:3389 $MYVM_HOST
+      echo \"\$(date '+%F %T') tunnel ended, retry in ${RETRY_SECONDS}s\"
+      sleep $RETRY_SECONDS
+    done" >"$LOG_FILE" 2>&1 &
+  echo $! >"$PID_FILE"
+  echo "tunnel: started on localhost:$MYVM_RDP_PORT (log: $LOG_FILE)"
+}
+
+tunnel_stop() {
+  if ! tunnel_running; then echo "tunnel: not running"; rm -f "$PID_FILE"; return; fi
+  kill -- "-$(cat "$PID_FILE")" 2>/dev/null || true
+  rm -f "$PID_FILE"
+  echo "tunnel: stopped"
+}
+
+fix_rdp() {
+  ssh "$MYVM_HOST" 'sudo systemctl reset-failed xrdp xrdp-sesman; sudo systemctl start xrdp-sesman xrdp; echo "xrdp: $(systemctl is-active xrdp)"'
+}
+
+status() {
+  local state; state="$(vm_state)"
+  echo "vm: $state"
+  if tunnel_running; then echo "tunnel: running on localhost:$MYVM_RDP_PORT"; else echo "tunnel: not running"; fi
+  [ "$state" = RUNNING ] && echo "xrdp: $(ssh -o BatchMode=yes -o ConnectTimeout=15 "$MYVM_HOST" systemctl is-active xrdp 2>/dev/null || echo unknown)"
+  return 0
+}
+
+rdp() {
+  if [ "$(vm_state)" != RUNNING ]; then gc start; fi
+  [ "$(ssh -o BatchMode=yes "$MYVM_HOST" systemctl is-active xrdp || true)" = active ] || fix_rdp
+  tunnel_start
+  if command -v mstsc.exe >/dev/null 2>&1; then
+    mstsc.exe "/v:localhost:$MYVM_RDP_PORT" &
+  else
+    echo "Connect a Remote Desktop client to localhost:$MYVM_RDP_PORT"
+  fi
+}
+
+case "${1:-}" in
+  status) status ;;
+  start) gc start ;;
+  stop) gc stop ;;
+  ssh) shift; exec ssh "$MYVM_HOST" "$@" ;;
+  tunnel)
+    case "${2:-}" in
+      start) tunnel_start ;;
+      stop) tunnel_stop ;;
+      *) usage; exit 1 ;;
+    esac ;;
+  rdp) rdp ;;
+  fix-rdp) fix_rdp ;;
+  -h|--help|help|"") usage ;;
+  *) usage; exit 1 ;;
+esac

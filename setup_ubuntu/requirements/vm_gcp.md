@@ -78,3 +78,12 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - RDP tunnel prints `channel N: open failed: connect failed: Connection refused`: xrdp is not running on the VM. A package install can restart services and xrdp can fail to start again. Fix: `sudo systemctl reset-failed xrdp xrdp-sesman && sudo systemctl start xrdp-sesman xrdp`.
 - Prevent it during installs: `sudo NEEDRESTART_SUSPEND=1 apt-get install ...`
 - First IAP SSH after the IAM binding fails with `4033 not authorized`: wait about one minute for IAM propagation and retry.
+
+## myvm CLI (laptop)
+`util/myvm` wraps the commands above. Install: `ln -sf ~/devel/dotfiles/util/myvm ~/.local/bin/myvm`, then put `MYVM_PROJECT=<PROJECT_ID>` in `~/.config/myvm/config`.
+- `myvm status` # VM, tunnel, xrdp state
+- `myvm start` / `myvm stop`
+- `myvm ssh`
+- `myvm tunnel start|stop` # RDP tunnel on localhost:13389, reconnects automatically
+- `myvm rdp` # start VM and tunnel if needed, open Remote Desktop
+- `myvm fix-rdp` # restart xrdp on the VM
