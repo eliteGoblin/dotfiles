@@ -96,3 +96,7 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `ln -sfn ~/devel/dotfiles/util/run_chrome_mcp_linux ~/.local/bin/run_chrome_mcp_linux`
 - `claude mcp add -s user chrome-devtools -- ~/.local/bin/run_chrome_mcp_linux mcp` # One shared Chrome for all Claude sessions; starts it if it is not running
 - Log in to sites once in that Chrome window on the desktop; logins stay in `~/.chrome-mcp-profile`
+
+## Usage history (sizing)
+- `sudo apt install sysstat`, set `ENABLED="true"` in `/etc/default/sysstat`, `sudo systemctl enable --now sysstat sysstat-collect.timer` # Records CPU, memory and load every 10 minutes
+- `sar -u` (CPU), `sar -r` (memory), `sar -q` (load) # Read the history; add `-f /var/log/sysstat/saDD` for another day
