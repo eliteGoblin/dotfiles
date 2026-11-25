@@ -86,7 +86,12 @@ idle_report() {
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$MYVM_HOST" BUSY_LOAD="$BUSY_LOAD" bash -s <<'REMOTE'
 now=$(date +%s)
 load=$(cut -d' ' -f1 /proc/loadavg)
-tty=$(stat -c %Y /dev/pts/[0-9]* 2>/dev/null | sort -n | tail -1)
+# A tmux client terminal is redrawn by the tmux status line (clock) every minute,
+# so for those count only keyboard input (access time), not output (modify time).
+clients=" $(tmux list-clients -F '#{client_tty}' 2>/dev/null | tr '\n' ' ')"
+tty=$(for p in /dev/pts/[0-9]*; do
+  case "$clients" in *" $p "*) stat -c %X "$p" ;; *) stat -c %Y "$p" ;; esac
+done 2>/dev/null | sort -n | tail -1)
 claude=$(find "$HOME/.claude/projects" -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
 tty=$(( now - ${tty:-0} )); claude=$(( now - ${claude:-0} )); desktop=-
 idle=$(( tty < claude ? tty : claude ))
