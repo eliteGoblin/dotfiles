@@ -52,6 +52,7 @@ echo 'fsun ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-fsun && sudo chm
 
 ## Time (run on the VM)
 - `sudo timedatectl set-timezone Australia/Sydney` # Time sync needs no setup: the GCP image runs chrony against `metadata.google.internal`; check with `timedatectl`
+- `sudo sed -i 's/^makestep 1 3$/makestep 1 -1/' /etc/chrony/chrony.conf && sudo systemctl restart chrony` # Always jump to the correct time when the clock is wrong by more than 1 second (for example after a resume from suspend); the default only does this right after chrony starts
 
 ## SSH from the laptop
 Add the laptop public key to `/home/fsun/.ssh/authorized_keys` on the VM, then add to `~/.ssh/config` on the laptop:
