@@ -49,6 +49,9 @@ sudo mkdir -p /etc/systemd/system/xrdp.service.d
 printf '[Service]\nRestart=on-failure\nRestartSec=5\n' | sudo tee /etc/systemd/system/xrdp.service.d/restart.conf
 sudo systemctl daemon-reload
 
+# Package upgrades (also automatic ones) restart xrdp; that orphans the running desktop and the next login closes at once. Exclude xrdp from those restarts
+printf '%s\n' '$nrconf{override_rc}{qr(^xrdp)} = 0;' | sudo tee /etc/needrestart/conf.d/xrdp.conf
+
 # Local user for the RDP login
 sudo adduser --disabled-password --gecos '' fsun && sudo usermod -aG sudo fsun
 sudo passwd fsun
