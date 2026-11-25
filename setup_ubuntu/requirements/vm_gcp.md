@@ -50,6 +50,9 @@ sudo passwd fsun
 echo 'fsun ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-fsun && sudo chmod 440 /etc/sudoers.d/90-fsun
 ```
 
+## Time (run on the VM)
+- `sudo timedatectl set-timezone Australia/Sydney` # Time sync needs no setup: the GCP image runs chrony against `metadata.google.internal`; check with `timedatectl`
+
 ## SSH from the laptop
 Add the laptop public key to `/home/fsun/.ssh/authorized_keys` on the VM, then add to `~/.ssh/config` on the laptop:
 ```
