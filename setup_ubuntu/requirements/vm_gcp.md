@@ -44,6 +44,11 @@ echo xfce4-session | sudo tee /etc/skel/.xsession
 curl -fsSLo /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt-get install -y /tmp/chrome.deb
 sudo systemctl enable --now xrdp
 
+# xrdp can fail at boot ("start operation timed out": systemd does not see the PID file in time); restart it automatically
+sudo mkdir -p /etc/systemd/system/xrdp.service.d
+printf '[Service]\nRestart=on-failure\nRestartSec=5\n' | sudo tee /etc/systemd/system/xrdp.service.d/restart.conf
+sudo systemctl daemon-reload
+
 # Local user for the RDP login
 sudo adduser --disabled-password --gecos '' fsun && sudo usermod -aG sudo fsun
 sudo passwd fsun
