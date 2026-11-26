@@ -29,7 +29,8 @@ Usage: myvm <command>
   ssh [args]      open a shell on the VM (or run a command)
   tunnel start    keep an RDP tunnel open on localhost:$MYVM_RDP_PORT (reconnects automatically)
   tunnel stop     close the tunnel
-  rdp             start the VM and the tunnel if needed, then open Remote Desktop
+  rdp [-m]        start the VM and the tunnel if needed, then open Remote Desktop;
+                  -m (--multimon) shows the desktop on all monitors
   fix-rdp         restart xrdp on the VM
   suspend | resume           hibernate the VM (memory is kept) or wake it
   idle [MIN]                 show each activity signal and whether the VM would be suspended now
@@ -173,12 +174,18 @@ status() {
 }
 
 rdp() {
+  local mstsc_args=("/v:localhost:$MYVM_RDP_PORT")
+  case "${1:-}" in
+    -m|--multimon) mstsc_args+=(/multimon) ;;
+    "") ;;
+    *) usage; exit 1 ;;
+  esac
   ensure_running
   autosuspend_default
   [ "$(ssh -o BatchMode=yes "$MYVM_HOST" systemctl is-active xrdp || true)" = active ] || fix_rdp
   tunnel_start
   if command -v mstsc.exe >/dev/null 2>&1; then
-    mstsc.exe "/v:localhost:$MYVM_RDP_PORT" &
+    mstsc.exe "${mstsc_args[@]}" &
   else
     echo "Connect a Remote Desktop client to localhost:$MYVM_RDP_PORT"
   fi
@@ -204,7 +211,7 @@ case "${1:-}" in
       stop) tunnel_stop ;;
       *) usage; exit 1 ;;
     esac ;;
-  rdp) rdp ;;
+  rdp) rdp "${2:-}" ;;
   fix-rdp) fix_rdp ;;
   -h|--help|help|"") usage ;;
   *) usage; exit 1 ;;

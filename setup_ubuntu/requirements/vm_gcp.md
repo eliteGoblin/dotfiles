@@ -97,7 +97,7 @@ gcloud compute instances stop devbox-zsun --zone=australia-southeast1-a --projec
 - `myvm start` / `myvm stop`
 - `myvm ssh`
 - `myvm tunnel start|stop` # RDP tunnel on localhost:13389, reconnects automatically
-- `myvm rdp` # start VM and tunnel if needed, open Remote Desktop
+- `myvm rdp` # start VM and tunnel if needed, open Remote Desktop; `myvm rdp -m` uses all monitors
 - `myvm fix-rdp` # restart xrdp on the VM
 - `myvm suspend` / `myvm resume` # hibernate: memory is kept, VM charge stops
 - `myvm idle [MIN]` # show each activity signal (terminal output, Claude conversation files, desktop input, CPU load) and whether the VM would be suspended now
