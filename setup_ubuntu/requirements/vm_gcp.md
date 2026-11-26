@@ -44,9 +44,9 @@ echo xfce4-session | sudo tee /etc/skel/.xsession
 curl -fsSLo /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt-get install -y /tmp/chrome.deb
 sudo systemctl enable --now xrdp
 
-# xrdp can fail at boot ("start operation timed out": systemd does not see the PID file in time); restart it automatically
+# xrdp fails at boot ("start operation timed out": systemd does not see the PID file in time). Run it in the foreground, so no PID file is needed
 sudo mkdir -p /etc/systemd/system/xrdp.service.d
-printf '[Service]\nRestart=on-failure\nRestartSec=5\n' | sudo tee /etc/systemd/system/xrdp.service.d/restart.conf
+printf '%s\n' '[Service]' 'Type=simple' 'PIDFile=' 'ExecStart=' 'ExecStart=/usr/sbin/xrdp --nodaemon' 'Restart=on-failure' 'RestartSec=5' | sudo tee /etc/systemd/system/xrdp.service.d/restart.conf
 sudo systemctl daemon-reload
 
 # Package upgrades (also automatic ones) restart xrdp; that orphans the running desktop and the next login closes at once. Exclude xrdp from those restarts
